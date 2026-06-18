@@ -1,0 +1,55 @@
+{
+  "feature_cols": [
+    "year",
+    "ai_investment_usd",
+    "automation_rate",
+    "cost_savings",
+    "revenue_impact",
+    "productivity_gain",
+    "employee_ai_training_hours",
+    "deployment_count",
+    "industry_enc",
+    "country_enc"
+  ],
+  "adoption_labels": [
+    "Low_Adoption",
+    "Medium_Adoption",
+    "High_Adoption"
+  ],
+  "label_encoders": {
+    "industry": [
+      "Agriculture",
+      "Education",
+      "Energy",
+      "Finance",
+      "Healthcare",
+      "Hospitality",
+      "Insurance",
+      "Legal",
+      "Manufacturing",
+      "Media",
+      "Real Estate",
+      "Retail",
+      "Technology",
+      "Telecom",
+      "Transportation"
+    ],
+    "country": [
+      "Australia",
+      "Brazil",
+      "Canada",
+      "China",
+      "France",
+      "Germany",
+      "India",
+      "Japan",
+      "Netherlands",
+      "Singapore",
+      "South Korea",
+      "Sweden",
+      "UAE",
+      "UK",
+      "USA"
+    ]
+  }
+}

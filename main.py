@@ -5,10 +5,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import anthropic
 import json
-import pickle
-import types
-import sys
 import numpy as np
+import onnxruntime as ort
 import os
 from typing import Optional
 
@@ -27,79 +25,70 @@ app.add_middleware(
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 
-# ── Minimal LabelEncoder stub (no sklearn needed) ────────────────────────────
-# Registered in sys.modules so pickle can deserialize LabelEncoder objects
-# from the pkl files without the real scikit-learn being installed.
-class _LabelEncoder:
-    """Drop-in replacement for sklearn.preprocessing.LabelEncoder."""
+# ═══════════════════════════════════════════════════════════════════════════
+# ONNX MODEL LOADER
+# ═══════════════════════════════════════════════════════════════════════════
 
-    def __init__(self):
-        self.classes_ = np.array([])
+class OnnxModelBundle:
+    """Holds a regressor + classifier ONNX session pair plus metadata."""
 
-    def __setstate__(self, state: dict):
-        self.__dict__.update(state)
+    def __init__(self, reg_path: str, clf_path: str, meta_path: str):
+        self.reg   = ort.InferenceSession(reg_path,  providers=["CPUExecutionProvider"])
+        self.clf   = ort.InferenceSession(clf_path,  providers=["CPUExecutionProvider"])
+        with open(meta_path) as f:
+            meta = json.load(f)
+        self.feature_cols    = meta["feature_cols"]
+        self.label_encoders  = meta["label_encoders"]    # {name: [class0, class1, ...]}
+        # label lists (regressor target names differ between bundles)
+        self.risk_labels     = meta.get("risk_labels",     [])
+        self.adoption_labels = meta.get("adoption_labels", [])
+        # fast reverse-lookup dicts
+        self._enc_cache: dict[str, dict] = {
+            col: {cls: i for i, cls in enumerate(classes)}
+            for col, classes in self.label_encoders.items()
+        }
 
-    def transform(self, values):
-        idx = {v: i for i, v in enumerate(self.classes_)}
-        return np.array([idx.get(v, 0) for v in values])
+    def encode(self, col: str, value: str) -> int:
+        return self._enc_cache.get(col, {}).get(value, 0)
 
+    def predict_reg(self, X: np.ndarray) -> float:
+        inp = self.reg.get_inputs()[0].name
+        return float(self.reg.run(None, {inp: X.astype(np.float32)})[0].flatten()[0])
 
-def _register_sklearn_stub():
-    sklearn_mod = types.ModuleType("sklearn")
-    preprocessing_mod = types.ModuleType("sklearn.preprocessing")
-    preprocessing_mod.LabelEncoder = _LabelEncoder
-    sklearn_mod.preprocessing = preprocessing_mod
-
-    utils_mod = types.ModuleType("sklearn.utils")
-    validation_mod = types.ModuleType("sklearn.utils.validation")
-    sklearn_mod.utils = utils_mod
-    utils_mod.validation = validation_mod
-
-    sys.modules.setdefault("sklearn", sklearn_mod)
-    sys.modules.setdefault("sklearn.preprocessing", preprocessing_mod)
-    sys.modules.setdefault("sklearn.utils", utils_mod)
-    sys.modules.setdefault("sklearn.utils.validation", validation_mod)
-
-
-_register_sklearn_stub()
-
-
-# ── pkl loader ──────────────────────────────────────────────────────────────
-def load_pkl(path: str):
-    """Load a pickle file, stubbing __main__ to avoid missing-symbol errors."""
-    dummy = types.ModuleType("__main__")
-    dummy.run_monte_carlo_job  = lambda *a, **k: None
-    dummy.run_monte_carlo_corp = lambda *a, **k: None
-    original_main = sys.modules.get("__main__")
-    sys.modules["__main__"] = dummy
-    try:
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-    finally:
-        if original_main is not None:
-            sys.modules["__main__"] = original_main
-    return data
+    def predict_clf(self, X: np.ndarray) -> int:
+        inp = self.clf.get_inputs()[0].name
+        # onnxmltools classifier outputs: [labels, probabilities]
+        result = self.clf.run(None, {inp: X.astype(np.float32)})
+        return int(result[0].flatten()[0])
 
 
-# ── Load models (optional — app runs fine without them) ─────────────────────
-job_models  = None
-corp_models = None
+# ── Load models at startup ───────────────────────────────────────────────────
+job_bundle  = None
+corp_bundle = None
 
 try:
-    job_models = load_pkl("job_replacement_models.pkl")
+    job_bundle = OnnxModelBundle(
+        "models/job_reg.onnx",
+        "models/job_clf.onnx",
+        "models/job_meta.json",
+    )
     print("✅ Job replacement models loaded")
-    print("   features:", job_models["feature_cols"])
+    print("   features:", job_bundle.feature_cols)
 except FileNotFoundError:
-    print("⚠️  job_replacement_models.pkl not found — /predict/job will return 503")
+    print("⚠️  models/job_*.onnx not found — /predict/job will return 503")
 except Exception as e:
     print(f"⚠️  Could not load job models: {e}")
 
 try:
-    corp_models = load_pkl("corporate_adoption_models.pkl")
+    corp_bundle = OnnxModelBundle(
+        "models/corp_reg.onnx",
+        "models/corp_clf.onnx",
+        "models/corp_meta.json",
+    )
     print("✅ Corporate adoption models loaded")
-    print("   features:", corp_models["feature_cols"])
+    print("   features:", corp_bundle.feature_cols)
 except FileNotFoundError:
-    print("⚠️  corporate_adoption_models.pkl not found — /predict/corporate will return 503")
+    print("⚠️  models/corp_*.onnx not found — /predict/corporate will return 503")
 except Exception as e:
     print(f"⚠️  Could not load corp models: {e}")
 
@@ -234,7 +223,10 @@ def root():
         "message": "AIvsHire API is running 🚀",
         "version": "2.0.0",
         "purpose": "AI vs Employee ROI Comparison for Companies",
-        "ml_predictions": job_models is not None or corp_models is not None,
+        "ml_predictions": {
+            "job_model":  job_bundle  is not None,
+            "corp_model": corp_bundle is not None,
+        },
     }
 
 
@@ -242,10 +234,10 @@ def root():
 def health():
     return {
         "status": "ok",
-        "job_models_loaded":  job_models  is not None,
-        "corp_models_loaded": corp_models is not None,
-        "job_features":  job_models["feature_cols"]  if job_models  else [],
-        "corp_features": corp_models["feature_cols"] if corp_models else [],
+        "job_models_loaded":  job_bundle  is not None,
+        "corp_models_loaded": corp_bundle is not None,
+        "job_features":  job_bundle.feature_cols  if job_bundle  else [],
+        "corp_features": corp_bundle.feature_cols if corp_bundle else [],
     }
 
 
@@ -287,20 +279,11 @@ def chat_stream(req: ChatRequest):
 
 @app.post("/predict/job")
 def predict_job(req: JobPredictRequest):
-    if job_models is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Job models not loaded. Add job_replacement_models.pkl to enable predictions.",
-        )
-
-    le_dict      = job_models["label_encoders"]
-    feature_cols = job_models["feature_cols"]
-    xgb_reg      = job_models["xgb_regressor"]
-    xgb_clf      = job_models["xgb_classifier"]
-    risk_labels  = job_models["risk_labels"]
+    if job_bundle is None:
+        raise HTTPException(status_code=503, detail="Job models not loaded.")
 
     row = {
-        "year":                         req.year,
+        "year":                         float(req.year),
         "automation_risk_percent":      req.automation_risk_percent,
         "skill_gap_index":              req.skill_gap_index,
         "salary_before_usd":            req.salary_before_usd,
@@ -314,66 +297,59 @@ def predict_job(req: JobPredictRequest):
         "wage_volatility_index":        req.wage_volatility_index,
         "reskilling_urgency_score":     req.reskilling_urgency_score,
         "ai_disruption_intensity":      req.ai_disruption_intensity,
-        "job_role_enc":  _safe_encode(le_dict.get("job_role"),  req.job_role),
-        "industry_enc":  _safe_encode(le_dict.get("industry"),  req.industry),
-        "country_enc":   _safe_encode(le_dict.get("country"),   req.country),
+        "job_role_enc":  float(job_bundle.encode("job_role", req.job_role)),
+        "industry_enc":  float(job_bundle.encode("industry", req.industry)),
+        "country_enc":   float(job_bundle.encode("country",  req.country)),
     }
 
-    X = np.array([[row[col] for col in feature_cols]], dtype=np.float32)
+    X = np.array([[row[col] for col in job_bundle.feature_cols]], dtype=np.float32)
 
-    score    = float(xgb_reg.predict(X)[0])
-    risk_idx = int(xgb_clf.predict(X)[0])
+    score    = round(job_bundle.predict_reg(X), 2)
+    risk_idx = job_bundle.predict_clf(X)
+    category = job_bundle.risk_labels[risk_idx]
 
     return {
-        "ai_replacement_score": round(score, 2),
-        "risk_category":        risk_labels[risk_idx],
+        "ai_replacement_score": score,
+        "risk_category":        category,
         "risk_idx":             risk_idx,
-        "interpretation": _interpret_job_risk(score, risk_labels[risk_idx]),
-        "valid_job_roles":      list(le_dict["job_role"].classes_),
-        "valid_industries":     list(le_dict["industry"].classes_),
-        "valid_countries":      list(le_dict["country"].classes_),
+        "interpretation":       _interpret_job_risk(score, category),
+        "valid_job_roles":      job_bundle.label_encoders["job_role"],
+        "valid_industries":     job_bundle.label_encoders["industry"],
+        "valid_countries":      job_bundle.label_encoders["country"],
     }
 
 
 @app.post("/predict/corporate")
 def predict_corporate(req: CorpPredictRequest):
-    if corp_models is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Corporate models not loaded. Add corporate_adoption_models.pkl to enable predictions.",
-        )
-
-    le_dict         = corp_models["label_encoders"]
-    feature_cols    = corp_models["feature_cols"]
-    xgb_reg         = corp_models["xgb_regressor"]
-    xgb_clf         = corp_models["xgb_classifier"]
-    adoption_labels = corp_models["adoption_labels"]
+    if corp_bundle is None:
+        raise HTTPException(status_code=503, detail="Corporate models not loaded.")
 
     row = {
-        "year":                       req.year,
+        "year":                       float(req.year),
         "ai_investment_usd":          req.ai_investment_usd,
         "automation_rate":            req.automation_rate,
         "cost_savings":               req.cost_savings,
         "revenue_impact":             req.revenue_impact,
         "productivity_gain":          req.productivity_gain,
         "employee_ai_training_hours": req.employee_ai_training_hours,
-        "deployment_count":           req.deployment_count,
-        "industry_enc": _safe_encode(le_dict.get("industry"), req.industry),
-        "country_enc":  _safe_encode(le_dict.get("country"),  req.country),
+        "deployment_count":           float(req.deployment_count),
+        "industry_enc": float(corp_bundle.encode("industry", req.industry)),
+        "country_enc":  float(corp_bundle.encode("country",  req.country)),
     }
 
-    X = np.array([[row[col] for col in feature_cols]], dtype=np.float32)
+    X = np.array([[row[col] for col in corp_bundle.feature_cols]], dtype=np.float32)
 
-    score        = float(xgb_reg.predict(X)[0])
-    adoption_idx = int(xgb_clf.predict(X)[0])
+    score        = round(corp_bundle.predict_reg(X), 2)
+    adoption_idx = corp_bundle.predict_clf(X)
+    category     = corp_bundle.adoption_labels[adoption_idx]
 
     return {
-        "ai_maturity_score":  round(score, 2),
-        "adoption_category":  adoption_labels[adoption_idx],
+        "ai_maturity_score":  score,
+        "adoption_category":  category,
         "adoption_idx":       adoption_idx,
-        "interpretation": _interpret_corp_adoption(score, adoption_labels[adoption_idx]),
-        "valid_industries":   list(le_dict["industry"].classes_),
-        "valid_countries":    list(le_dict["country"].classes_),
+        "interpretation":     _interpret_corp_adoption(score, category),
+        "valid_industries":   corp_bundle.label_encoders["industry"],
+        "valid_countries":    corp_bundle.label_encoders["country"],
     }
 
 
@@ -444,15 +420,6 @@ Generate the full ROI comparison report now."""
 # ═══════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
-
-def _safe_encode(le, value: str) -> int:
-    if le is None:
-        return 0
-    try:
-        return int(le.transform([value])[0])
-    except (ValueError, KeyError):
-        return 0
-
 
 def _interpret_job_risk(score: float, category: str) -> str:
     if category == "High" or score > 70:
