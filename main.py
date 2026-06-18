@@ -25,13 +25,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Static libs (Firebase SDK served locally) ────────────────────────────────
+app.mount("/lib", StaticFiles(directory="frontend/lib"), name="lib")
+
 # ── OpenAI client ────────────────────────────────────────────────────────────
 _api_key = os.environ.get("OPENAI_API_KEY")
 if not _api_key:
     print("WARNING: OPENAI_API_KEY not set — /chat and /compare/roi will return 503")
 client = openai.OpenAI(api_key=_api_key) if _api_key else None
 
-MODEL = "gpt-4o"
+MODEL = "gpt-4o-mini"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -102,16 +105,16 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class CompanyDetails(BaseModel):
-    company_name: str
-    industry: str
-    country: str
-    company_size: str
-    current_ai_investment_usd: float
-    current_training_hours: float
-    num_employees: int
-    avg_salary_usd: float
-    current_automation_rate: float
-    main_challenge: str
+    company_name: Optional[str] = None
+    industry: Optional[str] = None
+    country: Optional[str] = None
+    company_size: Optional[str] = None
+    current_ai_investment_usd: Optional[float] = None
+    current_training_hours: Optional[float] = None
+    num_employees: Optional[int] = None
+    avg_salary_usd: Optional[float] = None
+    current_automation_rate: Optional[float] = None
+    main_challenge: Optional[str] = None
 
 
 class Message(BaseModel):
@@ -198,21 +201,24 @@ TONE: Direct, data-driven, no fluff. Like a McKinsey consultant but human.
 Keep responses concise. Ask ONE question at a time.
 Never give a recommendation until you have enough data."""
 
-    if company:
-        base += f"""
-
-Company you're advising right now:
-- Company: {company.company_name}
-- Industry: {company.industry}, Country: {company.country}
-- Size: {company.company_size} ({company.num_employees} employees)
-- Avg Salary: ${company.avg_salary_usd:,.0f} USD
-- Current AI Investment: ${company.current_ai_investment_usd:,.0f} USD/year
-- Current Training Hours/Employee: {company.current_training_hours} hrs/year
-- Current Automation Rate: {company.current_automation_rate}%
-- Main Challenge: {company.main_challenge}
-
-You already have their basic details. Don't ask for them again.
-Start by acknowledging their situation and asking deeper questions about their specific pain points and goals."""
+    if company and any(v is not None for v in company.model_dump().values()):
+        lines = ["", "Company you're advising right now:"]
+        if company.company_name:        lines.append(f"- Company: {company.company_name}")
+        if company.industry:            lines.append(f"- Industry: {company.industry}")
+        if company.country:             lines.append(f"- Country: {company.country}")
+        if company.company_size:        lines.append(f"- Size: {company.company_size}")
+        if company.num_employees:       lines.append(f"- Employees: {company.num_employees}")
+        if company.avg_salary_usd:      lines.append(f"- Avg Salary: ${company.avg_salary_usd:,.0f} USD")
+        if company.current_ai_investment_usd is not None:
+            lines.append(f"- Current AI Investment: ${company.current_ai_investment_usd:,.0f} USD/year")
+        if company.current_training_hours is not None:
+            lines.append(f"- Training Hours/Employee: {company.current_training_hours} hrs/year")
+        if company.current_automation_rate is not None:
+            lines.append(f"- Automation Rate: {company.current_automation_rate}%")
+        if company.main_challenge:      lines.append(f"- Main Challenge: {company.main_challenge}")
+        lines.append("")
+        lines.append("Use any info above that was provided. Ask for what's missing one question at a time.")
+        base += "\n".join(lines)
 
     return base
 
@@ -224,6 +230,11 @@ Start by acknowledging their situation and asking deeper questions about their s
 @app.get("/", response_class=FileResponse)
 def root():
     return FileResponse("frontend/index.html")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse("frontend/favicon.ico")
 
 
 @app.get("/api/firebase-config")
