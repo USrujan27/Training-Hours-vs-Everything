@@ -355,9 +355,14 @@
       Continue with Google
     </button>
 
-    <div class="divider">or</div>
+    <div id="iframe-warning" style="display:none; margin-top:10px; padding:10px 14px; background:#1a2d42; border:1px solid #38bdf8; border-radius:8px; font-size:12px; color:#94a3b8; text-align:left;">
+      ⚠️ Google sign-in is blocked inside previews.
+      <a id="btn-open-tab" href="#" style="color:#38bdf8; display:block; margin-top:6px; font-weight:600;">→ Open app in new tab to use Google sign-in</a>
+    </div>
 
-    <div id="email-form">
+    <div class="divider">or sign in with email</div>
+
+    <form id="email-form" onsubmit="return false;">
       <div class="form-group">
         <label>Email</label>
         <input type="email" id="login-email" placeholder="you@company.com" autocomplete="email"/>
@@ -366,12 +371,12 @@
         <label>Password</label>
         <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/>
       </div>
-      <button class="btn-primary" id="btn-email-login">Sign in</button>
+      <button class="btn-primary" id="btn-email-login" type="submit">Sign in</button>
       <div class="auth-error" id="auth-error"></div>
       <div class="toggle-auth">
         Don't have an account? <a id="toggle-signup">Sign up</a>
       </div>
-    </div>
+    </form>
   </div>
 </div>
 
@@ -541,13 +546,32 @@ function showPage(name) {
 // ═══════════════════════════════════════════════════════════
 // AUTH — LOGIN
 // ═══════════════════════════════════════════════════════════
+// Detect iframe
+const inIframe = window !== window.top;
+if (inIframe) {
+  document.getElementById('iframe-warning').style.display = 'block';
+  document.getElementById('btn-open-tab').addEventListener('click', e => {
+    e.preventDefault();
+    window.open(window.location.href, '_blank');
+  });
+}
+
 document.getElementById('btn-google-login').addEventListener('click', async () => {
+  if (inIframe) {
+    // In iframe: open in new tab where Google auth will work
+    window.open(window.location.href, '_blank');
+    return;
+  }
   const provider = new firebase.auth.GoogleAuthProvider();
-  provider.setCustomParameters({ client_id: '171312393255-tshgoglogb6api8a1ah5fbr13f96jro9.apps.googleusercontent.com' });
+  provider.setCustomParameters({
+    client_id: '171312393255-tshgoglogb6api8a1ah5fbr13f96jro9.apps.googleusercontent.com'
+  });
   try {
-    await fbAuth.signInWithRedirect(provider);
+    await fbAuth.signInWithPopup(provider);
   } catch (e) {
-    setAuthError(e.message);
+    // Popup blocked — fall back to redirect
+    try { await fbAuth.signInWithRedirect(provider); }
+    catch (e2) { setAuthError(e2.message.replace('Firebase: ', '').replace(/\(auth.*\)\.?/, '').trim()); }
   }
 });
 
