@@ -24,8 +24,10 @@ app.add_middleware(
 # ── Anthropic client ────────────────────────────────────────────────────────
 _api_key = os.environ.get("ANTHROPIC_API_KEY")
 if not _api_key:
-    print("⚠️  ANTHROPIC_API_KEY not set — chat/ROI endpoints will return 503")
+    print("WARNING: ANTHROPIC_API_KEY not set — /chat and /compare/roi will return 503")
 client = anthropic.Anthropic(api_key=_api_key) if _api_key else None
+
+MODEL = "claude-sonnet-4-5"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -42,10 +44,8 @@ class OnnxModelBundle:
             meta = json.load(f)
         self.feature_cols    = meta["feature_cols"]
         self.label_encoders  = meta["label_encoders"]    # {name: [class0, class1, ...]}
-        # label lists (regressor target names differ between bundles)
         self.risk_labels     = meta.get("risk_labels",     [])
         self.adoption_labels = meta.get("adoption_labels", [])
-        # fast reverse-lookup dicts
         self._enc_cache: dict[str, dict] = {
             col: {cls: i for i, cls in enumerate(classes)}
             for col, classes in self.label_encoders.items()
@@ -60,7 +60,6 @@ class OnnxModelBundle:
 
     def predict_clf(self, X: np.ndarray) -> int:
         inp = self.clf.get_inputs()[0].name
-        # onnxmltools classifier outputs: [labels, probabilities]
         result = self.clf.run(None, {inp: X.astype(np.float32)})
         return int(result[0].flatten()[0])
 
@@ -75,12 +74,11 @@ try:
         "models/job_clf.onnx",
         "models/job_meta.json",
     )
-    print("✅ Job replacement models loaded")
-    print("   features:", job_bundle.feature_cols)
+    print("Job replacement models loaded")
 except FileNotFoundError:
-    print("⚠️  models/job_*.onnx not found — /predict/job will return 503")
+    print("WARNING: models/job_*.onnx not found — /predict/job will return 503")
 except Exception as e:
-    print(f"⚠️  Could not load job models: {e}")
+    print(f"WARNING: Could not load job models: {e}")
 
 try:
     corp_bundle = OnnxModelBundle(
@@ -88,12 +86,11 @@ try:
         "models/corp_clf.onnx",
         "models/corp_meta.json",
     )
-    print("✅ Corporate adoption models loaded")
-    print("   features:", corp_bundle.feature_cols)
+    print("Corporate adoption models loaded")
 except FileNotFoundError:
-    print("⚠️  models/corp_*.onnx not found — /predict/corporate will return 503")
+    print("WARNING: models/corp_*.onnx not found — /predict/corporate will return 503")
 except Exception as e:
-    print(f"⚠️  Could not load corp models: {e}")
+    print(f"WARNING: Could not load corp models: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -223,13 +220,14 @@ Start by acknowledging their situation and asking deeper questions about their s
 @app.get("/")
 def root():
     return {
-        "message": "AIvsHire API is running 🚀",
+        "message": "AIvsHire API is running",
         "version": "2.0.0",
         "purpose": "AI vs Employee ROI Comparison for Companies",
         "ml_predictions": {
             "job_model":  job_bundle  is not None,
             "corp_model": corp_bundle is not None,
         },
+        "ai_chat": client is not None,
     }
 
 
@@ -239,17 +237,18 @@ def health():
         "status": "ok",
         "job_models_loaded":  job_bundle  is not None,
         "corp_models_loaded": corp_bundle is not None,
-        "job_features":  job_bundle.feature_cols  if job_bundle  else [],
-        "corp_features": corp_bundle.feature_cols if corp_bundle else [],
+        "ai_chat_ready":      client      is not None,
     }
 
 
 @app.post("/chat")
 def chat(req: ChatRequest):
+    if client is None:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured.")
     system   = build_system_prompt(req.company_details)
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=MODEL,
         max_tokens=1024,
         system=system,
         messages=messages,
@@ -259,12 +258,14 @@ def chat(req: ChatRequest):
 
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest):
+    if client is None:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured.")
     system   = build_system_prompt(req.company_details)
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
     def generate():
         with client.messages.stream(
-            model="claude-sonnet-4-6",
+            model=MODEL,
             max_tokens=1024,
             system=system,
             messages=messages,
@@ -358,38 +359,41 @@ def predict_corporate(req: CorpPredictRequest):
 
 @app.post("/compare/roi")
 def compare_roi(req: ROIComparisonRequest):
+    if client is None:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured.")
+
     system = """You are AIvsHire, an expert business ROI analyst.
 
 Given a company's profile and their conversation, generate a structured ROI comparison report.
 
 Output EXACTLY these sections:
 
-## 📊 Company Snapshot
+## Company Snapshot
 Brief summary of their current situation in 2-3 lines.
 
-## 🤖 If They Invest More in AI
+## If They Invest More in AI
 - Estimated automation gain
 - Cost savings potential
 - Productivity impact
 - Risks and downsides
 - Timeline to see ROI
 
-## 👥 If They Invest More in Employee Training
+## If They Invest More in Employee Training
 - Skill gap reduction
 - Salary & retention impact
 - Productivity improvement
-- Risks and downsides  
+- Risks and downsides
 - Timeline to see ROI
 
-## ⚖️ Head-to-Head Comparison
+## Head-to-Head Comparison
 A simple table comparing both options across: Cost, ROI Timeline, Risk, Scalability, Sustainability
 
-## 🏆 Our Recommendation
+## Our Recommendation
 Clear verdict: AI-First / Employee-First / Hybrid (50-50)
 Why this recommendation specifically for their industry + country + size.
 What they should do in the next 90 days — 3 concrete action steps.
 
-## ⚠️ Watch Out For
+## Watch Out For
 2-3 risks specific to their situation they must plan for.
 
 Keep numbers realistic. Be specific to their industry and country. No generic advice."""
@@ -412,7 +416,7 @@ Conversation with company representative:
 Generate the full ROI comparison report now."""
 
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=MODEL,
         max_tokens=2000,
         system=system,
         messages=[{"role": "user", "content": user_prompt}],
@@ -443,9 +447,9 @@ def _interpret_corp_adoption(score: float, category: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# RUN
+# RUN (local dev only — deployment uses the deployConfig command)
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=5173, reload=True)
