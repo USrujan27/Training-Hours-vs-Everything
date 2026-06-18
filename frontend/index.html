@@ -752,11 +752,19 @@
       <div class="form-group">
         <label>Password</label>
         <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/>
+        <div id="pw-hint" style="display:none; font-size:11px; color:var(--muted); margin-top:4px;">Minimum 6 characters</div>
       </div>
-      <button class="btn-primary" id="btn-email-login" type="submit">Sign in</button>
+      <div class="form-group" id="confirm-pw-group" style="display:none;">
+        <label>Confirm Password</label>
+        <input type="password" id="login-confirm-pw" placeholder="••••••••" autocomplete="new-password"/>
+      </div>
       <div class="auth-error" id="auth-error"></div>
-      <div class="toggle-auth">
-        Don't have an account? <a id="toggle-signup">Sign up</a>
+      <button class="btn-primary" id="btn-email-login" type="submit">Sign in</button>
+      <div class="toggle-auth" style="margin-top:14px;">
+        <span id="toggle-auth-text">Don't have an account?</span> <a id="toggle-signup">Sign up</a>
+      </div>
+      <div id="forgot-pw-wrap" style="margin-top:10px; font-size:13px; text-align:center;">
+        <a id="btn-forgot-pw" style="color:var(--muted); cursor:pointer; text-decoration:none;">Forgot password?</a>
       </div>
     </form>
   </div>
@@ -1328,7 +1336,10 @@ async function initFirebase() {
     });
   } catch (e) {
     console.error('Firebase init failed', e);
-    setAuthError('Could not connect to authentication service. Please refresh and try again.');
+    const msg = (e.code === 'auth/invalid-api-key' || String(e.message).includes('invalid-api-key'))
+      ? 'Firebase API key is missing. Add GOOGLE_API_KEY to your Replit Secrets and refresh.'
+      : 'Could not connect to authentication service. Please refresh and try again.';
+    setAuthError(msg);
     showPage('login');
   }
 }
@@ -1344,7 +1355,6 @@ function showPage(name) {
 // ═══════════════════════════════════════════════════════════
 // AUTH — LOGIN
 // ═══════════════════════════════════════════════════════════
-// Detect iframe
 const inIframe = window !== window.top;
 if (inIframe) {
   document.getElementById('iframe-warning').style.display = 'block';
@@ -1354,32 +1364,75 @@ if (inIframe) {
   });
 }
 
+function authReady() {
+  if (!fbAuth) {
+    setAuthError('Authentication service not available. Please add your Firebase API key in Secrets and refresh.');
+    return false;
+  }
+  return true;
+}
+
+function friendlyAuthError(e) {
+  const code = e.code || '';
+  const map = {
+    'auth/invalid-api-key':           'Firebase API key is missing or invalid. Add GOOGLE_API_KEY to Secrets.',
+    'auth/user-not-found':            'No account found with that email.',
+    'auth/wrong-password':            'Incorrect password.',
+    'auth/invalid-credential':        'Email or password is incorrect.',
+    'auth/email-already-in-use':      'An account with this email already exists. Try signing in instead.',
+    'auth/weak-password':             'Password must be at least 6 characters.',
+    'auth/invalid-email':             'Please enter a valid email address.',
+    'auth/too-many-requests':         'Too many attempts. Please wait a few minutes and try again.',
+    'auth/network-request-failed':    'Network error. Check your connection and try again.',
+    'auth/popup-closed-by-user':      'Sign-in popup was closed. Please try again.',
+    'auth/cancelled-popup-request':   'Only one sign-in popup at a time. Please try again.',
+    'auth/operation-not-allowed':     'This sign-in method is not enabled in your Firebase project.',
+  };
+  return map[code] || e.message.replace('Firebase: ', '').replace(/\(auth\/[\w-]+\)\.?/g, '').trim();
+}
+
 document.getElementById('btn-google-login').addEventListener('click', async () => {
   if (inIframe) {
-    // In iframe: open in new tab where Google auth will work
     window.open(window.location.href, '_blank');
     return;
   }
+  if (!authReady()) return;
+  setAuthError('');
+  const btn = document.getElementById('btn-google-login');
+  btn.disabled = true;
+  const origText = btn.innerHTML;
+  btn.textContent = 'Connecting to Google…';
   const provider = new firebase.auth.GoogleAuthProvider();
-  provider.setCustomParameters({
-    client_id: '171312393255-tshgoglogb6api8a1ah5fbr13f96jro9.apps.googleusercontent.com'
-  });
   try {
     await fbAuth.signInWithPopup(provider);
   } catch (e) {
-    // Popup blocked — fall back to redirect
-    try { await fbAuth.signInWithRedirect(provider); }
-    catch (e2) { setAuthError(e2.message.replace('Firebase: ', '').replace(/\(auth.*\)\.?/, '').trim()); }
+    if (e.code === 'auth/popup-blocked') {
+      try { await fbAuth.signInWithRedirect(provider); }
+      catch (e2) { setAuthError(friendlyAuthError(e2)); }
+    } else {
+      setAuthError(friendlyAuthError(e));
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origText;
   }
 });
 
 document.getElementById('btn-email-login').addEventListener('click', async () => {
-  const email = document.getElementById('login-email').value.trim();
-  const pw    = document.getElementById('login-password').value;
+  if (!authReady()) return;
+  const email   = document.getElementById('login-email').value.trim();
+  const pw      = document.getElementById('login-password').value;
+  const confirmPw = document.getElementById('login-confirm-pw').value;
   setAuthError('');
-  if (!email || !pw) return setAuthError('Please enter email and password.');
+
+  if (!email)        return setAuthError('Please enter your email address.');
+  if (!pw)           return setAuthError('Please enter your password.');
+  if (isSignup && pw.length < 6) return setAuthError('Password must be at least 6 characters.');
+  if (isSignup && pw !== confirmPw) return setAuthError('Passwords do not match.');
+
   const btn = document.getElementById('btn-email-login');
-  btn.disabled = true; btn.textContent = isSignup ? 'Creating account…' : 'Signing in…';
+  btn.disabled = true;
+  btn.textContent = isSignup ? 'Creating account…' : 'Signing in…';
   try {
     if (isSignup) {
       await fbAuth.createUserWithEmailAndPassword(email, pw);
@@ -1387,7 +1440,7 @@ document.getElementById('btn-email-login').addEventListener('click', async () =>
       await fbAuth.signInWithEmailAndPassword(email, pw);
     }
   } catch (e) {
-    setAuthError(e.message.replace('Firebase: ', '').replace(/\(auth.*\)\.?/, '').trim());
+    setAuthError(friendlyAuthError(e));
   } finally {
     btn.disabled = false;
     btn.textContent = isSignup ? 'Create account' : 'Sign in';
@@ -1396,25 +1449,56 @@ document.getElementById('btn-email-login').addEventListener('click', async () =>
 
 document.getElementById('toggle-signup').addEventListener('click', () => {
   isSignup = !isSignup;
-  document.getElementById('btn-email-login').textContent = isSignup ? 'Create account' : 'Sign in';
-  document.getElementById('toggle-signup').textContent   = isSignup ? 'Log in instead' : 'Sign up';
-  document.getElementById('toggle-signup').previousSibling.textContent = isSignup ? 'Already have an account? ' : "Don't have an account? ";
+  document.getElementById('btn-email-login').textContent      = isSignup ? 'Create account' : 'Sign in';
+  document.getElementById('toggle-signup').textContent        = isSignup ? 'Log in instead' : 'Sign up';
+  document.getElementById('toggle-auth-text').textContent     = isSignup ? 'Already have an account?' : "Don't have an account?";
+  document.getElementById('confirm-pw-group').style.display   = isSignup ? 'block' : 'none';
+  document.getElementById('pw-hint').style.display            = isSignup ? 'block' : 'none';
+  document.getElementById('forgot-pw-wrap').style.display     = isSignup ? 'none'  : 'block';
+  document.getElementById('login-confirm-pw').value = '';
   setAuthError('');
 });
 
+document.getElementById('btn-forgot-pw').addEventListener('click', async () => {
+  if (!authReady()) return;
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) return setAuthError('Enter your email address above, then click "Forgot password?".');
+  try {
+    await fbAuth.sendPasswordResetEmail(email);
+    setAuthError('');
+    const el = document.getElementById('auth-error');
+    el.style.color = 'var(--success)';
+    el.textContent = `Password reset email sent to ${email}. Check your inbox.`;
+    setTimeout(() => { el.style.color = ''; el.textContent = ''; }, 6000);
+  } catch (e) {
+    setAuthError(friendlyAuthError(e));
+  }
+});
+
+document.getElementById('login-email').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('login-password').focus();
+});
 document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    if (isSignup) document.getElementById('login-confirm-pw').focus();
+    else document.getElementById('btn-email-login').click();
+  }
+});
+document.getElementById('login-confirm-pw').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('btn-email-login').click();
 });
 
 function setAuthError(msg) {
-  document.getElementById('auth-error').textContent = msg;
+  const el = document.getElementById('auth-error');
+  el.style.color = '';
+  el.textContent = msg;
 }
 
 // ═══════════════════════════════════════════════════════════
 // AUTH — SIGN OUT
 // ═══════════════════════════════════════════════════════════
 function signOut() {
-  fbAuth.signOut();
+  if (fbAuth) fbAuth.signOut();
   companyDetails = null; messages = []; msgCount = 0; analysisGenerated = false;
   showPage('login');
 }
