@@ -4,10 +4,15 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AIvsHire — AI vs Employee ROI Advisor</title>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Firebase — primary: unpkg, fallback: gstatic -->
+  <script src="https://unpkg.com/firebase@10.12.0/compat/app.js"
+    onerror="this.onerror=null;this.src='https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js'"></script>
+  <script src="https://unpkg.com/firebase@10.12.0/compat/auth.js"
+    onerror="this.onerror=null;this.src='https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js'"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+    onerror="this.onerror=null;this.src='https://unpkg.com/chart.js@4.4.0/dist/chart.umd.min.js'"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"
+    onerror="this.onerror=null;this.src='https://unpkg.com/marked@9.1.6/marked.min.js'"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -506,6 +511,12 @@ let isSignup = false;
 // FIREBASE INIT (fetch config from backend)
 // ═══════════════════════════════════════════════════════════
 async function initFirebase() {
+  if (typeof firebase === 'undefined') {
+    console.warn('Firebase SDK not loaded — check network/CDN access.');
+    setAuthError('Firebase failed to load. Please disable any ad-blockers or try a different browser.');
+    showPage('login');
+    return;
+  }
   try {
     const res = await fetch('/api/firebase-config');
     const cfg = await res.json();
@@ -532,6 +543,8 @@ async function initFirebase() {
     });
   } catch (e) {
     console.error('Firebase init failed', e);
+    setAuthError('Could not connect to authentication service. Please refresh and try again.');
+    showPage('login');
   }
 }
 
@@ -756,15 +769,29 @@ async function sendUserMessage(text) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: apiMsgs, company_details: companyDetails })
     });
-    const data = await res.json();
     removeTyping();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail || '';
+      if (res.status === 429 || detail.toLowerCase().includes('quota')) {
+        appendMsg('ai', '⚠️ **OpenAI quota exceeded.** The API key has run out of credits — please top up at [platform.openai.com/settings/billing](https://platform.openai.com/settings/billing) and try again.');
+      } else if (res.status === 401) {
+        appendMsg('ai', '⚠️ **Invalid OpenAI API key.** Please update `OPENAI_API_KEY` in your Replit Secrets.');
+      } else if (res.status === 503) {
+        appendMsg('ai', '⚠️ **OpenAI API key not configured.** Add your `OPENAI_API_KEY` in the Replit Secrets tab.');
+      } else {
+        appendMsg('ai', `⚠️ Server error (${res.status}): ${detail || 'please try again.'}`);
+      }
+      return;
+    }
+    const data = await res.json();
     const reply = data.reply || '...';
     messages.push({ role: 'assistant', content: reply });
     appendMsg('ai', reply);
     msgCount++;
   } catch (e) {
     removeTyping();
-    appendMsg('ai', 'Connection issue — please try again.');
+    appendMsg('ai', '⚠️ Connection issue — please check your internet and try again.');
   } finally {
     inp.disabled = false; btn.disabled = false; inp.focus();
   }
@@ -932,17 +959,7 @@ function renderCharts(data) {
 // ═══════════════════════════════════════════════════════════
 // BOOT
 // ═══════════════════════════════════════════════════════════
-initFirebase().then(() => {
-  fbAuth.onAuthStateChanged(user => {
-    if (user) {
-      currentUser = user;
-      populateUserUI(user);
-      if (!companyDetails) showPage('details');
-    } else {
-      showPage('login');
-    }
-  });
-});
+initFirebase();
 </script>
 </body>
 </html>

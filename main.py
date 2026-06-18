@@ -259,12 +259,19 @@ def chat(req: ChatRequest):
     messages = [{"role": "system", "content": system}] + [
         {"role": m.role, "content": m.content} for m in req.messages
     ]
-    response = client.chat.completions.create(
-        model=MODEL,
-        max_tokens=1024,
-        messages=messages,
-    )
-    return {"reply": response.choices[0].message.content}
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            max_tokens=1024,
+            messages=messages,
+        )
+        return {"reply": response.choices[0].message.content}
+    except openai.RateLimitError:
+        raise HTTPException(status_code=429, detail="OpenAI quota exceeded. Please add billing credits at platform.openai.com/settings/billing.")
+    except openai.AuthenticationError:
+        raise HTTPException(status_code=401, detail="Invalid OpenAI API key.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat/stream")
