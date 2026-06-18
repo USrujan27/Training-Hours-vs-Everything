@@ -5,15 +5,11 @@ stack = "BEST_EFFORT_FALLBACK"
 
 [nix]
 channel = "stable-25_05"
-packages = ["glibcLocales", "libxcrypt"]
+packages = ["glibcLocales", "libxcrypt", "oneDNN", "re2"]
 
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 8099
-externalPort = 8099
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -40,5 +36,5 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "fuser -k 5000/tcp 2>/dev/null; sleep 1; uvicorn main:app --host 0.0.0.0 --port 5000"
+args = "python -m uvicorn main:app --host 0.0.0.0 --port 5000"
 waitForPort = 5000
