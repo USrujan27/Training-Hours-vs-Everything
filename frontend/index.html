@@ -506,10 +506,24 @@ async function initFirebase() {
     const cfg = await res.json();
     fbApp  = firebase.initializeApp(cfg);
     fbAuth = firebase.auth();
+
+    // Handle redirect result first (Google sign-in returns here)
+    try {
+      const result = await fbAuth.getRedirectResult();
+      if (result && result.user) {
+        currentUser = result.user;
+        populateUserUI(currentUser);
+        showPage('details');
+        return;
+      }
+    } catch (e) {
+      setAuthError(e.message.replace('Firebase: ', '').replace(/\(auth.*\)\.?/, '').trim());
+    }
+
     fbAuth.onAuthStateChanged(user => {
       currentUser = user;
-      if (user && !companyDetails) showPage('details');
-      else if (!user) showPage('login');
+      if (user) { populateUserUI(user); if (!companyDetails) showPage('details'); }
+      else showPage('login');
     });
   } catch (e) {
     console.error('Firebase init failed', e);
@@ -529,8 +543,9 @@ function showPage(name) {
 // ═══════════════════════════════════════════════════════════
 document.getElementById('btn-google-login').addEventListener('click', async () => {
   const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ client_id: '171312393255-tshgoglogb6api8a1ah5fbr13f96jro9.apps.googleusercontent.com' });
   try {
-    await fbAuth.signInWithPopup(provider);
+    await fbAuth.signInWithRedirect(provider);
   } catch (e) {
     setAuthError(e.message);
   }
