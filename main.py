@@ -22,7 +22,10 @@ app.add_middleware(
 )
 
 # ── Anthropic client ────────────────────────────────────────────────────────
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+_api_key = os.environ.get("ANTHROPIC_API_KEY")
+if not _api_key:
+    print("⚠️  ANTHROPIC_API_KEY not set — chat/ROI endpoints will return 503")
+client = anthropic.Anthropic(api_key=_api_key) if _api_key else None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
