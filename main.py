@@ -13,8 +13,13 @@ import subprocess
 import tempfile
 import shutil
 from typing import Optional, List
+from pathlib import Path
+
+# ── Path Resolution (Task 11) ───────────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title="AIvsHire API", version="2.0.0")
+print("[STARTUP] FastAPI initialized")
 
 # ── CORS ────────────────────────────────────────────────────────────────────
 app.add_middleware(
@@ -26,16 +31,45 @@ app.add_middleware(
 )
 
 # ── Static libs (Firebase SDK served locally) ────────────────────────────────
-app.mount("/lib", StaticFiles(directory="frontend/lib"), name="lib")
+lib_dir = BASE_DIR / "frontend" / "lib"
+if lib_dir.is_dir():
+    app.mount("/lib", StaticFiles(directory=str(lib_dir)), name="lib")
+    print("[STARTUP] Frontend mounted (/lib)")
+else:
+    print(f"[STARTUP] WARNING: Frontend lib directory is missing at {lib_dir}")
 
-# ── Gemini (OpenAI compatibility) client ──────────────────────────────────────
-_api_key = os.environ.get("GEMINI_API_KEY")
-if not _api_key:
-    print("WARNING: GEMINI_API_KEY not set — /chat and /compare/roi will return 503")
+index_path = BASE_DIR / "frontend" / "index.html"
+if index_path.is_file():
+    print("[STARTUP] frontend mounted (index.html)")
+else:
+    print(f"[STARTUP] WARNING: frontend/index.html is missing at {index_path}")
+
+# ── Environment Variable Validation (Task 12) ───────────────────────────────
+_gemini_key = os.getenv("GEMINI_API_KEY")
+_google_api_key = os.getenv("GOOGLE_API_KEY")
+_google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+_kaggle_username = os.getenv("KAGGLE_USERNAME")
+_kaggle_key = os.getenv("KAGGLE_KEY")
+
+if _gemini_key:
+    print("[STARTUP] Gemini configured")
+else:
+    print("[STARTUP] WARNING: GEMINI_API_KEY is not configured")
+
+if not _google_api_key:
+    print("[STARTUP] WARNING: GOOGLE_API_KEY is not configured")
+if not _google_client_id:
+    print("[STARTUP] WARNING: GOOGLE_CLIENT_ID is not configured")
+if not _kaggle_username:
+    print("[STARTUP] WARNING: KAGGLE_USERNAME is not configured")
+if not _kaggle_key:
+    print("[STARTUP] WARNING: KAGGLE_KEY is not configured")
+
+# ── Gemini (OpenAI compatibility) client (Task 3) ───────────────────────────
 client = openai.OpenAI(
-    api_key=_api_key,
+    api_key=_gemini_key,
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-) if _api_key else None
+) if _gemini_key else None
 
 MODEL = "gemini-2.5-flash"
 
@@ -47,10 +81,10 @@ MODEL = "gemini-2.5-flash"
 class OnnxModelBundle:
     """Holds a regressor + classifier ONNX session pair plus metadata."""
 
-    def __init__(self, reg_path: str, clf_path: str, meta_path: str):
-        self.reg   = ort.InferenceSession(reg_path,  providers=["CPUExecutionProvider"])
-        self.clf   = ort.InferenceSession(clf_path,  providers=["CPUExecutionProvider"])
-        with open(meta_path) as f:
+    def __init__(self, reg_path: Path, clf_path: Path, meta_path: Path):
+        self.reg   = ort.InferenceSession(str(reg_path),  providers=["CPUExecutionProvider"])
+        self.clf   = ort.InferenceSession(str(clf_path),  providers=["CPUExecutionProvider"])
+        with open(meta_path, encoding="utf-8") as f:
             meta = json.load(f)
         self.feature_cols    = meta["feature_cols"]
         self.label_encoders  = meta["label_encoders"]    # {name: [class0, class1, ...]}
@@ -74,33 +108,56 @@ class OnnxModelBundle:
         return int(result[0].flatten()[0])
 
 
-# ── Load models at startup ───────────────────────────────────────────────────
+# ── Production Startup Validation & Loading (Tasks 7, 8, 11 & 12) ────────────
 job_bundle  = None
 corp_bundle = None
 
-try:
-    job_bundle = OnnxModelBundle(
-        "models/job_reg.onnx",
-        "models/job_clf.onnx",
-        "models/job_meta.json",
-    )
-    print("Job replacement models loaded")
-except FileNotFoundError:
-    print("WARNING: models/job_*.onnx not found — /predict/job will return 503")
-except Exception as e:
-    print(f"WARNING: Could not load job models: {e}")
+# Validation existence of files
+model_files = {
+    "job_reg.onnx":  BASE_DIR / "models" / "job_reg.onnx",
+    "job_clf.onnx":  BASE_DIR / "models" / "job_clf.onnx",
+    "job_meta.json": BASE_DIR / "models" / "job_meta.json",
+    "corp_reg.onnx":  BASE_DIR / "models" / "corp_reg.onnx",
+    "corp_clf.onnx":  BASE_DIR / "models" / "corp_clf.onnx",
+    "corp_meta.json": BASE_DIR / "models" / "corp_meta.json",
+}
+
+for name, path in model_files.items():
+    if path.is_file():
+        print(f"[STARTUP] {name} found")
+    else:
+        print(f"[STARTUP] WARNING: {name} is missing at {path}")
+
+print("[STARTUP] Loading ONNX models")
 
 try:
-    corp_bundle = OnnxModelBundle(
-        "models/corp_reg.onnx",
-        "models/corp_clf.onnx",
-        "models/corp_meta.json",
-    )
-    print("Corporate adoption models loaded")
-except FileNotFoundError:
-    print("WARNING: models/corp_*.onnx not found — /predict/corporate will return 503")
+    if all(model_files[k].is_file() for k in ["job_reg.onnx", "job_clf.onnx", "job_meta.json"]):
+        job_bundle = OnnxModelBundle(
+            model_files["job_reg.onnx"],
+            model_files["job_clf.onnx"],
+            model_files["job_meta.json"],
+        )
+    else:
+        print("[STARTUP] WARNING: Skipped loading Job models due to missing files")
 except Exception as e:
-    print(f"WARNING: Could not load corp models: {e}")
+    print(f"[STARTUP] ERROR: Failed to load job replacement models: {e}")
+
+try:
+    if all(model_files[k].is_file() for k in ["corp_reg.onnx", "corp_clf.onnx", "corp_meta.json"]):
+        corp_bundle = OnnxModelBundle(
+            model_files["corp_reg.onnx"],
+            model_files["corp_clf.onnx"],
+            model_files["corp_meta.json"],
+        )
+    else:
+        print("[STARTUP] WARNING: Skipped loading Corporate models due to missing files")
+except Exception as e:
+    print(f"[STARTUP] ERROR: Failed to load corporate adoption models: {e}")
+
+if job_bundle is not None and corp_bundle is not None:
+    print("[STARTUP] Models loaded successfully")
+else:
+    print("[STARTUP] WARNING: Some or all ONNX models failed to load")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -232,36 +289,46 @@ Never give a recommendation until you have enough data."""
 
 @app.get("/", response_class=FileResponse)
 def root():
-    return FileResponse("frontend/index.html")
+    index_path = BASE_DIR / "frontend" / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="frontend/index.html not found.")
+    return FileResponse(str(index_path))
 
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return FileResponse("frontend/favicon.ico")
+    fav_path = BASE_DIR / "frontend" / "favicon.ico"
+    if not fav_path.is_file():
+        raise HTTPException(status_code=404, detail="favicon.ico not found.")
+    return FileResponse(str(fav_path))
 
 
 @app.get("/api/firebase-config")
 def firebase_config():
     return {
-        "apiKey":            os.environ.get("GOOGLE_API_KEY", ""),
+        "apiKey":            os.getenv("GOOGLE_API_KEY", ""),
         "authDomain":        "insider-fa38d.firebaseapp.com",
         "projectId":         "insider-fa38d",
         "storageBucket":     "insider-fa38d.firebasestorage.app",
         "messagingSenderId": "171312393255",
         "appId":             "1:171312393255:web:07d8e4081480162357f202",
         "measurementId":     "G-03ZP55MWBC",
-        "clientId":          os.environ.get("GOOGLE_CLIENT_ID",
-                             "171312393255-tshgoglogb6api8a1ah5fbr13f96jro9.apps.googleusercontent.com"),
+        "clientId":          os.getenv("GOOGLE_CLIENT_ID", ""),
     }
 
 
 @app.get("/health")
 def health():
+    index_path = BASE_DIR / "frontend" / "index.html"
+    frontend_ok = index_path.is_file()
+    models_ok = (job_bundle is not None) and (corp_bundle is not None)
+    gemini_ok = os.getenv("GEMINI_API_KEY") is not None
+    
     return {
-        "status": "ok",
-        "job_models_loaded":  job_bundle  is not None,
-        "corp_models_loaded": corp_bundle is not None,
-        "ai_chat_ready":      client      is not None,
+        "status": "healthy" if (frontend_ok and models_ok) else "unhealthy",
+        "frontend_loaded": frontend_ok,
+        "models_loaded": models_ok,
+        "gemini_configured": gemini_ok
     }
 
 
@@ -320,7 +387,7 @@ def chat_stream(req: ChatRequest):
 @app.post("/predict/job")
 def predict_job(req: JobPredictRequest):
     if job_bundle is None:
-        raise HTTPException(status_code=503, detail="Job models not loaded.")
+        raise HTTPException(status_code=503, detail="Job replacement models are not loaded/available. Please check server logs.")
 
     row = {
         "year":                         float(req.year),
@@ -362,7 +429,7 @@ def predict_job(req: JobPredictRequest):
 @app.post("/predict/corporate")
 def predict_corporate(req: CorpPredictRequest):
     if corp_bundle is None:
-        raise HTTPException(status_code=503, detail="Corporate models not loaded.")
+        raise HTTPException(status_code=503, detail="Corporate adoption models are not loaded/available. Please check server logs.")
 
     row = {
         "year":                       float(req.year),
@@ -637,7 +704,7 @@ def _perturbation_shap(
 @app.post("/explain/job")
 def explain_job(req: JobPredictRequest):
     if job_bundle is None:
-        raise HTTPException(status_code=503, detail="Job models not loaded.")
+        raise HTTPException(status_code=503, detail="Job replacement models are not loaded/available. Please check server logs.")
 
     row = {
         "year":                         float(req.year),
@@ -682,7 +749,7 @@ def explain_job(req: JobPredictRequest):
 @app.post("/explain/corporate")
 def explain_corporate(req: CorpPredictRequest):
     if corp_bundle is None:
-        raise HTTPException(status_code=503, detail="Corporate models not loaded.")
+        raise HTTPException(status_code=503, detail="Corporate adoption models are not loaded/available. Please check server logs.")
 
     row = {
         "year":                       float(req.year),
@@ -721,8 +788,8 @@ def explain_corporate(req: CorpPredictRequest):
 # KAGGLE ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════
 
-DATASETS_DIR = "datasets"
-os.makedirs(DATASETS_DIR, exist_ok=True)
+DATASETS_DIR = BASE_DIR / "datasets"
+DATASETS_DIR.mkdir(parents=True, exist_ok=True)
 
 class DatasetFetchRequest(BaseModel):
     dataset: str  # e.g. "username/dataset-name"
@@ -730,8 +797,8 @@ class DatasetFetchRequest(BaseModel):
 
 def _setup_kaggle_env():
     """Write kaggle.json from env vars so the kaggle CLI works."""
-    username = os.environ.get("KAGGLE_USERNAME")
-    key      = os.environ.get("KAGGLE_KEY")
+    username = os.getenv("KAGGLE_USERNAME")
+    key      = os.getenv("KAGGLE_KEY")
     if not username or not key:
         raise HTTPException(status_code=503, detail="KAGGLE_USERNAME or KAGGLE_KEY not configured.")
     kaggle_dir = os.path.expanduser("~/.kaggle")
@@ -746,23 +813,23 @@ def _setup_kaggle_env():
 def fetch_dataset(req: DatasetFetchRequest):
     """Download a Kaggle dataset by 'owner/dataset-name' slug."""
     _setup_kaggle_env()
-    dest = os.path.join(DATASETS_DIR, req.dataset.replace("/", "_"))
-    os.makedirs(dest, exist_ok=True)
+    dest = DATASETS_DIR / req.dataset.replace("/", "_")
+    dest.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        ["kaggle", "datasets", "download", "-d", req.dataset, "--unzip", "-p", dest],
+        ["kaggle", "datasets", "download", "-d", req.dataset, "--unzip", "-p", str(dest)],
         capture_output=True, text=True
     )
     if result.returncode != 0:
         raise HTTPException(status_code=400, detail=result.stderr.strip())
     files = []
-    for root, _, filenames in os.walk(dest):
+    for root, _, filenames in os.walk(str(dest)):
         for fn in filenames:
-            rel = os.path.relpath(os.path.join(root, fn), DATASETS_DIR)
+            rel = os.path.relpath(os.path.join(root, fn), str(DATASETS_DIR))
             files.append(rel)
     return {
         "status":  "downloaded",
         "dataset": req.dataset,
-        "path":    dest,
+        "path":    str(dest),
         "files":   files,
     }
 
@@ -770,16 +837,16 @@ def fetch_dataset(req: DatasetFetchRequest):
 @app.get("/datasets/list")
 def list_datasets():
     """List all previously downloaded datasets."""
-    if not os.path.isdir(DATASETS_DIR):
+    if not DATASETS_DIR.is_dir():
         return {"datasets": []}
     entries = []
     for name in os.listdir(DATASETS_DIR):
-        full = os.path.join(DATASETS_DIR, name)
-        if os.path.isdir(full):
+        full = DATASETS_DIR / name
+        if full.is_dir():
             files = []
-            for root, _, filenames in os.walk(full):
+            for root, _, filenames in os.walk(str(full)):
                 for fn in filenames:
-                    rel = os.path.relpath(os.path.join(root, fn), full)
+                    rel = os.path.relpath(os.path.join(root, fn), str(full))
                     files.append(rel)
             entries.append({"name": name, "files": files, "file_count": len(files)})
     return {"datasets": entries}
