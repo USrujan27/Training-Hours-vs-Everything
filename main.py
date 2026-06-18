@@ -515,6 +515,206 @@ Return only the JSON object."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# SHAP / EXPLAIN ENDPOINTS  (perturbation-based feature attribution)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Baseline (reference) values used when masking a feature
+JOB_BASELINES: dict[str, float] = {
+    "year":                       2024.0,
+    "automation_risk_percent":    50.0,
+    "skill_gap_index":            50.0,
+    "salary_before_usd":          60000.0,
+    "salary_after_usd":           65000.0,
+    "salary_change_percent":      8.0,
+    "skill_demand_growth_percent": 5.0,
+    "remote_feasibility_score":   5.0,
+    "ai_adoption_level":          5.0,
+    "education_requirement_level": 5.0,
+    "skill_transition_pressure":  5.0,
+    "wage_volatility_index":      5.0,
+    "reskilling_urgency_score":   5.0,
+    "ai_disruption_intensity":    5.0,
+    "job_role_enc":               0.0,
+    "industry_enc":               0.0,
+    "country_enc":                0.0,
+}
+
+CORP_BASELINES: dict[str, float] = {
+    "year":                       2024.0,
+    "ai_investment_usd":          100000.0,
+    "automation_rate":            20.0,
+    "cost_savings":               50000.0,
+    "revenue_impact":             80000.0,
+    "productivity_gain":          10.0,
+    "employee_ai_training_hours": 20.0,
+    "deployment_count":           3.0,
+    "industry_enc":               0.0,
+    "country_enc":                0.0,
+}
+
+JOB_FEATURE_LABELS: dict[str, str] = {
+    "year":                        "Year",
+    "automation_risk_percent":     "Automation Risk %",
+    "skill_gap_index":             "Skill Gap Index",
+    "salary_before_usd":           "Salary Before (USD)",
+    "salary_after_usd":            "Salary After (USD)",
+    "salary_change_percent":       "Salary Change %",
+    "skill_demand_growth_percent": "Skill Demand Growth %",
+    "remote_feasibility_score":    "Remote Feasibility",
+    "ai_adoption_level":           "AI Adoption Level",
+    "education_requirement_level": "Education Level",
+    "skill_transition_pressure":   "Skill Transition Pressure",
+    "wage_volatility_index":       "Wage Volatility",
+    "reskilling_urgency_score":    "Reskilling Urgency",
+    "ai_disruption_intensity":     "AI Disruption Intensity",
+    "job_role_enc":                "Job Role",
+    "industry_enc":                "Industry",
+    "country_enc":                 "Country",
+}
+
+CORP_FEATURE_LABELS: dict[str, str] = {
+    "year":                       "Year",
+    "ai_investment_usd":          "AI Investment (USD)",
+    "automation_rate":            "Automation Rate %",
+    "cost_savings":               "Cost Savings (USD)",
+    "revenue_impact":             "Revenue Impact (USD)",
+    "productivity_gain":          "Productivity Gain %",
+    "employee_ai_training_hours": "Training Hours/Employee",
+    "deployment_count":           "AI Deployments",
+    "industry_enc":               "Industry",
+    "country_enc":                "Country",
+}
+
+
+def _perturbation_shap(
+    bundle: OnnxModelBundle,
+    row: dict[str, float],
+    baselines: dict[str, float],
+    labels: dict[str, str],
+) -> list[dict]:
+    """
+    Compute per-feature SHAP contributions via perturbation.
+    For each feature i: contribution = predict(full) - predict(with feature i → baseline).
+    Contributions are normalised so they sum to (base_score - baseline_score).
+    """
+    X_full = np.array([[row[col] for col in bundle.feature_cols]], dtype=np.float32)
+    base_score = bundle.predict_reg(X_full)
+
+    X_base = np.array(
+        [[baselines.get(col, 0.0) for col in bundle.feature_cols]], dtype=np.float32
+    )
+    baseline_score = bundle.predict_reg(X_base)
+
+    raw: list[dict] = []
+    for i, col in enumerate(bundle.feature_cols):
+        X_masked = X_full.copy()
+        X_masked[0, i] = baselines.get(col, 0.0)
+        score_without = bundle.predict_reg(X_masked)
+        contribution = base_score - score_without
+        raw.append({"col": col, "raw": contribution})
+
+    total_raw = sum(abs(r["raw"]) for r in raw) or 1.0
+    scale = (base_score - baseline_score) / total_raw if total_raw else 1.0
+
+    contributions = []
+    for r in raw:
+        contrib = r["raw"] * scale
+        contributions.append({
+            "feature":      labels.get(r["col"], r["col"]),
+            "col":          r["col"],
+            "value":        round(float(row[r["col"]]), 4),
+            "contribution": round(float(contrib), 4),
+            "direction":    "positive" if contrib >= 0 else "negative",
+        })
+
+    contributions.sort(key=lambda x: abs(x["contribution"]), reverse=True)
+    return contributions
+
+
+@app.post("/explain/job")
+def explain_job(req: JobPredictRequest):
+    if job_bundle is None:
+        raise HTTPException(status_code=503, detail="Job models not loaded.")
+
+    row = {
+        "year":                         float(req.year),
+        "automation_risk_percent":      req.automation_risk_percent,
+        "skill_gap_index":              req.skill_gap_index,
+        "salary_before_usd":            req.salary_before_usd,
+        "salary_after_usd":             req.salary_after_usd,
+        "salary_change_percent":        req.salary_change_percent,
+        "skill_demand_growth_percent":  req.skill_demand_growth_percent,
+        "remote_feasibility_score":     req.remote_feasibility_score,
+        "ai_adoption_level":            req.ai_adoption_level,
+        "education_requirement_level":  req.education_requirement_level,
+        "skill_transition_pressure":    req.skill_transition_pressure,
+        "wage_volatility_index":        req.wage_volatility_index,
+        "reskilling_urgency_score":     req.reskilling_urgency_score,
+        "ai_disruption_intensity":      req.ai_disruption_intensity,
+        "job_role_enc":  float(job_bundle.encode("job_role", req.job_role)),
+        "industry_enc":  float(job_bundle.encode("industry", req.industry)),
+        "country_enc":   float(job_bundle.encode("country",  req.country)),
+    }
+
+    X = np.array([[row[col] for col in job_bundle.feature_cols]], dtype=np.float32)
+    score    = round(job_bundle.predict_reg(X), 2)
+    risk_idx = job_bundle.predict_clf(X)
+    category = job_bundle.risk_labels[risk_idx]
+
+    shap_values = _perturbation_shap(job_bundle, row, JOB_BASELINES, JOB_FEATURE_LABELS)
+
+    return {
+        "ai_replacement_score": score,
+        "risk_category":        category,
+        "interpretation":       _interpret_job_risk(score, category),
+        "shap_values":          shap_values,
+        "baseline_score":       round(
+            job_bundle.predict_reg(
+                np.array([[JOB_BASELINES.get(c, 0.0) for c in job_bundle.feature_cols]], dtype=np.float32)
+            ), 2
+        ),
+    }
+
+
+@app.post("/explain/corporate")
+def explain_corporate(req: CorpPredictRequest):
+    if corp_bundle is None:
+        raise HTTPException(status_code=503, detail="Corporate models not loaded.")
+
+    row = {
+        "year":                       float(req.year),
+        "ai_investment_usd":          req.ai_investment_usd,
+        "automation_rate":            req.automation_rate,
+        "cost_savings":               req.cost_savings,
+        "revenue_impact":             req.revenue_impact,
+        "productivity_gain":          req.productivity_gain,
+        "employee_ai_training_hours": req.employee_ai_training_hours,
+        "deployment_count":           float(req.deployment_count),
+        "industry_enc": float(corp_bundle.encode("industry", req.industry)),
+        "country_enc":  float(corp_bundle.encode("country",  req.country)),
+    }
+
+    X = np.array([[row[col] for col in corp_bundle.feature_cols]], dtype=np.float32)
+    score        = round(corp_bundle.predict_reg(X), 2)
+    adoption_idx = corp_bundle.predict_clf(X)
+    category     = corp_bundle.adoption_labels[adoption_idx]
+
+    shap_values = _perturbation_shap(corp_bundle, row, CORP_BASELINES, CORP_FEATURE_LABELS)
+
+    return {
+        "ai_maturity_score": score,
+        "adoption_category": category,
+        "interpretation":    _interpret_corp_adoption(score, category),
+        "shap_values":       shap_values,
+        "baseline_score":    round(
+            corp_bundle.predict_reg(
+                np.array([[CORP_BASELINES.get(c, 0.0) for c in corp_bundle.feature_cols]], dtype=np.float32)
+            ), 2
+        ),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # KAGGLE ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════
 
