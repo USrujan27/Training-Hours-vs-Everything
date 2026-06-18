@@ -633,6 +633,95 @@
       margin-bottom: 16px;
     }
     .waterfall-baseline strong { color: var(--text); }
+
+    /* ─── WHAT-IF SIMULATOR ─── */
+    .whatif-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px 28px;
+      margin-top: 20px;
+    }
+    .whatif-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px; margin-bottom: 6px;
+    }
+    .whatif-title { font-size: 15px; font-weight: 700; }
+    .whatif-sub   { font-size: 12px; color: var(--muted); margin-bottom: 20px; }
+
+    .whatif-header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    .whatif-delta {
+      display: none; padding: 5px 14px; border-radius: 20px;
+      font-size: 13px; font-weight: 700;
+    }
+    .whatif-delta.pos { display: inline-block; background: rgba(248,113,113,.15); color: var(--danger); }
+    .whatif-delta.neg { display: inline-block; background: rgba(74,222,128,.15);  color: var(--success); }
+    .whatif-delta.zero { display: inline-block; background: rgba(148,163,184,.1); color: var(--muted); }
+
+    .btn-reset-whatif {
+      padding: 6px 14px;
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); font-size: 12px; font-weight: 600;
+      border-radius: 8px; cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-reset-whatif:hover { border-color: var(--primary); color: var(--primary); }
+
+    .whatif-loading {
+      display: none; font-size: 12px; color: var(--muted);
+      align-items: center; gap: 6px;
+    }
+    .whatif-loading.show { display: flex; }
+    .whatif-spinner {
+      width: 14px; height: 14px; border: 2px solid var(--border);
+      border-top-color: var(--primary); border-radius: 50%;
+      animation: spin .6s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .whatif-sliders {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 18px 32px;
+    }
+    @media (max-width: 640px) { .whatif-sliders { grid-template-columns: 1fr; } }
+
+    .slider-row { display: flex; flex-direction: column; gap: 5px; }
+    .slider-row-header {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px;
+    }
+    .slider-label { color: var(--muted); font-weight: 500; }
+    .slider-value { color: var(--text); font-weight: 700; font-size: 12px; }
+    .slider-contrib {
+      font-size: 11px; font-weight: 600;
+      padding: 1px 7px; border-radius: 10px; margin-left: 6px;
+    }
+    .slider-contrib.pos { background: rgba(56,189,248,.15);  color: var(--primary); }
+    .slider-contrib.neg { background: rgba(129,140,248,.15); color: var(--accent); }
+
+    input[type=range].shap-slider {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 5px; border-radius: 3px;
+      background: var(--surface2); outline: none; cursor: pointer;
+      transition: background .1s;
+    }
+    input[type=range].shap-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--primary); cursor: pointer;
+      border: 2px solid #0f172a;
+      transition: transform .1s;
+    }
+    input[type=range].shap-slider::-webkit-slider-thumb:hover { transform: scale(1.25); }
+    input[type=range].shap-slider::-moz-range-thumb {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--primary); cursor: pointer; border: 2px solid #0f172a;
+    }
+    .slider-range-labels {
+      display: flex; justify-content: space-between;
+      font-size: 10px; color: #475569;
+    }
   </style>
 </head>
 <body>
@@ -1029,6 +1118,24 @@
             <tbody></tbody>
           </table>
         </div>
+
+        <!-- What-If Simulator -->
+        <div class="whatif-panel" id="job-whatif">
+          <div class="whatif-header">
+            <div>
+              <div class="whatif-title">🎛 What-If Simulator</div>
+            </div>
+            <div class="whatif-header-right">
+              <div class="whatif-loading" id="job-whatif-loading">
+                <div class="whatif-spinner"></div> Recalculating…
+              </div>
+              <div class="whatif-delta" id="job-whatif-delta"></div>
+              <button class="btn-reset-whatif" id="btn-reset-job-whatif">↺ Reset</button>
+            </div>
+          </div>
+          <div class="whatif-sub">Drag any slider to instantly see how the AI Replacement Score and SHAP chart respond.</div>
+          <div class="whatif-sliders" id="job-whatif-sliders"></div>
+        </div>
       </div>
     </div>
 
@@ -1118,6 +1225,24 @@
             <thead><tr><th>Feature</th><th>Your Value</th><th>Contribution</th><th style="min-width:140px">Impact Bar</th></tr></thead>
             <tbody></tbody>
           </table>
+        </div>
+
+        <!-- What-If Simulator -->
+        <div class="whatif-panel" id="corp-whatif">
+          <div class="whatif-header">
+            <div>
+              <div class="whatif-title">🎛 What-If Simulator</div>
+            </div>
+            <div class="whatif-header-right">
+              <div class="whatif-loading" id="corp-whatif-loading">
+                <div class="whatif-spinner"></div> Recalculating…
+              </div>
+              <div class="whatif-delta" id="corp-whatif-delta"></div>
+              <button class="btn-reset-whatif" id="btn-reset-corp-whatif">↺ Reset</button>
+            </div>
+          </div>
+          <div class="whatif-sub">Drag any slider to instantly see how the AI Maturity Score and SHAP chart respond.</div>
+          <div class="whatif-sliders" id="corp-whatif-sliders"></div>
         </div>
       </div>
     </div>
@@ -1957,6 +2082,9 @@ document.getElementById('btn-predict-job').addEventListener('click', async () =>
     shapJobChart = renderSHAPChart('chart-shap-job', shap, '#38bdf8', '#818cf8', shapJobChart);
     renderSHAPTable('job-shap-table', shap, maxAbs);
 
+    payload._origScore = data.ai_replacement_score;
+    initJobWhatIf(payload, shap, data.ai_replacement_score);
+
   } catch (e) {
     alert('Request failed: ' + e.message);
   } finally {
@@ -2021,6 +2149,9 @@ document.getElementById('btn-predict-corp').addEventListener('click', async () =
     shapCorpChart = renderSHAPChart('chart-shap-corp', shap, '#4ade80', '#818cf8', shapCorpChart);
     renderSHAPTable('corp-shap-table', shap, maxAbs);
 
+    payload._origScore = data.ai_maturity_score;
+    initCorpWhatIf(payload, shap, data.ai_maturity_score);
+
   } catch (e) {
     alert('Request failed: ' + e.message);
   } finally {
@@ -2028,6 +2159,245 @@ document.getElementById('btn-predict-corp').addEventListener('click', async () =
     btn.textContent = 'Run SHAP Analysis →';
   }
 });
+
+// ═══════════════════════════════════════════════════════════
+// WHAT-IF SIMULATOR
+// ═══════════════════════════════════════════════════════════
+
+const JOB_SLIDER_CONFIG = [
+  { col: 'automation_risk_percent',    label: 'Automation Risk',        min: 0,   max: 100,     step: 1,      fmt: v => v + '%' },
+  { col: 'ai_disruption_intensity',    label: 'AI Disruption Intensity',min: 0,   max: 10,      step: 0.1,    fmt: v => (+v).toFixed(1) + '/10' },
+  { col: 'skill_gap_index',            label: 'Skill Gap Index',        min: 0,   max: 100,     step: 1,      fmt: v => v },
+  { col: 'ai_adoption_level',          label: 'AI Adoption Level',      min: 0,   max: 10,      step: 0.1,    fmt: v => (+v).toFixed(1) + '/10' },
+  { col: 'skill_transition_pressure',  label: 'Skill Transition',       min: 0,   max: 10,      step: 0.1,    fmt: v => (+v).toFixed(1) + '/10' },
+  { col: 'reskilling_urgency_score',   label: 'Reskilling Urgency',     min: 0,   max: 10,      step: 0.1,    fmt: v => (+v).toFixed(1) + '/10' },
+  { col: 'remote_feasibility_score',   label: 'Remote Feasibility',     min: 0,   max: 10,      step: 0.1,    fmt: v => (+v).toFixed(1) + '/10' },
+  { col: 'skill_demand_growth_percent',label: 'Skill Demand Growth',    min: -50, max: 100,     step: 1,      fmt: v => (v > 0 ? '+' : '') + v + '%' },
+  { col: 'wage_volatility_index',      label: 'Wage Volatility',        min: 0,   max: 10,      step: 0.1,    fmt: v => (+v).toFixed(1) + '/10' },
+  { col: 'education_requirement_level', label: 'Education Level',        min: 0,   max: 10,      step: 0.1,    fmt: v => (+v).toFixed(1) + '/10' },
+];
+
+const CORP_SLIDER_CONFIG = [
+  { col: 'ai_investment_usd',          label: 'AI Investment',          min: 0,   max: 5000000, step: 10000,  fmt: v => '$' + (v/1000).toFixed(0) + 'k' },
+  { col: 'automation_rate',            label: 'Automation Rate',        min: 0,   max: 100,     step: 1,      fmt: v => v + '%' },
+  { col: 'productivity_gain',          label: 'Productivity Gain',      min: 0,   max: 200,     step: 1,      fmt: v => v + '%' },
+  { col: 'deployment_count',           label: 'AI Deployments',         min: 0,   max: 50,      step: 1,      fmt: v => v },
+  { col: 'employee_ai_training_hours', label: 'Training Hrs/Employee',  min: 0,   max: 200,     step: 1,      fmt: v => v + ' hrs' },
+  { col: 'cost_savings',               label: 'Cost Savings',           min: 0,   max: 2000000, step: 10000,  fmt: v => '$' + (v/1000).toFixed(0) + 'k' },
+  { col: 'revenue_impact',             label: 'Revenue Impact',         min: 0,   max: 2000000, step: 10000,  fmt: v => '$' + (v/1000).toFixed(0) + 'k' },
+];
+
+let jobWhatIfPayload  = null;  // mutable copy adjusted by sliders
+let corpWhatIfPayload = null;
+let jobWhatIfOriginal = null;  // frozen snapshot for reset + delta
+let corpWhatIfOriginal = null;
+let jobWhatIfShap  = null;     // latest shap array for contrib badges
+let corpWhatIfShap = null;
+let jobWhatIfTimer  = null;    // debounce handle
+let corpWhatIfTimer = null;
+
+function buildSliders(containerId, config, payloadRef, getPayload, onRefresh, btnResetId) {
+  const wrap = document.getElementById(containerId);
+  wrap.innerHTML = '';
+  config.forEach(cfg => {
+    const val = getPayload()[cfg.col];
+    if (val === undefined || val === null) return;
+
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+
+    const numVal = parseFloat(val) || 0;
+
+    row.innerHTML = `
+      <div class="slider-row-header">
+        <span class="slider-label">${cfg.label}</span>
+        <span>
+          <span class="slider-value" id="sv-${cfg.col}">${cfg.fmt(numVal)}</span>
+          <span class="slider-contrib" id="sc-${cfg.col}"></span>
+        </span>
+      </div>
+      <input type="range" class="shap-slider"
+        id="sr-${cfg.col}"
+        min="${cfg.min}" max="${cfg.max}" step="${cfg.step}"
+        value="${Math.min(Math.max(numVal, cfg.min), cfg.max)}">
+      <div class="slider-range-labels">
+        <span>${cfg.fmt(cfg.min)}</span>
+        <span>${cfg.fmt(cfg.max)}</span>
+      </div>`;
+
+    wrap.appendChild(row);
+
+    row.querySelector(`#sr-${cfg.col}`).addEventListener('input', e => {
+      const newVal = parseFloat(e.target.value);
+      getPayload()[cfg.col] = newVal;
+      document.getElementById(`sv-${cfg.col}`).textContent = cfg.fmt(newVal);
+      onRefresh();
+    });
+  });
+}
+
+function updateSliderContribs(config, shapArr) {
+  if (!shapArr) return;
+  const maxAbs = Math.max(...shapArr.map(s => Math.abs(s.contribution)), 0.001);
+  shapArr.forEach(s => {
+    const badge = document.getElementById('sc-' + s.col);
+    if (!badge) return;
+    const pct = ((Math.abs(s.contribution) / maxAbs) * 100).toFixed(0);
+    badge.textContent = (s.contribution >= 0 ? '▲ ' : '▼ ') + Math.abs(s.contribution).toFixed(3);
+    badge.className = 'slider-contrib ' + (s.contribution >= 0 ? 'pos' : 'neg');
+    badge.title = `${pct}% of max impact`;
+  });
+}
+
+function showWhatIfDelta(deltaId, newScore, origScore, isHigherBad) {
+  const el = document.getElementById(deltaId);
+  const diff = newScore - origScore;
+  el.className = 'whatif-delta';
+  if (Math.abs(diff) < 0.001) {
+    el.className += ' zero';
+    el.textContent = 'No change';
+  } else {
+    const better = isHigherBad ? diff < 0 : diff > 0;
+    el.className += better ? ' neg' : ' pos';
+    el.textContent = (diff > 0 ? '▲ +' : '▼ ') + diff.toFixed(1) + ' pts';
+  }
+}
+
+function updateScoreRing(cardId, newScore) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  const numEl = card.querySelector('.result-score-value');
+  if (numEl) numEl.textContent = newScore.toFixed(1);
+}
+
+function initJobWhatIf(payload, shapArr, origScore) {
+  jobWhatIfOriginal = JSON.parse(JSON.stringify(payload));
+  jobWhatIfPayload  = JSON.parse(JSON.stringify(payload));
+  jobWhatIfShap     = shapArr;
+
+  buildSliders(
+    'job-whatif-sliders',
+    JOB_SLIDER_CONFIG,
+    jobWhatIfPayload,
+    () => jobWhatIfPayload,
+    debounceJobWhatIf,
+    'btn-reset-job-whatif'
+  );
+  updateSliderContribs(JOB_SLIDER_CONFIG, shapArr);
+  document.getElementById('job-whatif-delta').className = 'whatif-delta';
+
+  document.getElementById('btn-reset-job-whatif').onclick = () => {
+    jobWhatIfPayload = JSON.parse(JSON.stringify(jobWhatIfOriginal));
+    JOB_SLIDER_CONFIG.forEach(cfg => {
+      const el = document.getElementById('sr-' + cfg.col);
+      if (el) {
+        const v = jobWhatIfPayload[cfg.col] ?? 0;
+        el.value = Math.min(Math.max(v, cfg.min), cfg.max);
+        const sv = document.getElementById('sv-' + cfg.col);
+        if (sv) sv.textContent = cfg.fmt(v);
+      }
+    });
+    updateSliderContribs(JOB_SLIDER_CONFIG, jobWhatIfShap);
+    updateScoreRing('job-result-card', origScore);
+    renderSHAPChart('chart-shap-job', jobWhatIfShap, '#38bdf8', '#818cf8', shapJobChart);
+    renderSHAPTable('job-shap-table', jobWhatIfShap, Math.max(...jobWhatIfShap.map(s => Math.abs(s.contribution))));
+    document.getElementById('job-whatif-delta').className = 'whatif-delta';
+  };
+}
+
+function initCorpWhatIf(payload, shapArr, origScore) {
+  corpWhatIfOriginal = JSON.parse(JSON.stringify(payload));
+  corpWhatIfPayload  = JSON.parse(JSON.stringify(payload));
+  corpWhatIfShap     = shapArr;
+
+  buildSliders(
+    'corp-whatif-sliders',
+    CORP_SLIDER_CONFIG,
+    corpWhatIfPayload,
+    () => corpWhatIfPayload,
+    debounceCorpWhatIf,
+    'btn-reset-corp-whatif'
+  );
+  updateSliderContribs(CORP_SLIDER_CONFIG, shapArr);
+  document.getElementById('corp-whatif-delta').className = 'whatif-delta';
+
+  document.getElementById('btn-reset-corp-whatif').onclick = () => {
+    corpWhatIfPayload = JSON.parse(JSON.stringify(corpWhatIfOriginal));
+    CORP_SLIDER_CONFIG.forEach(cfg => {
+      const el = document.getElementById('sr-' + cfg.col);
+      if (el) {
+        const v = corpWhatIfPayload[cfg.col] ?? 0;
+        el.value = Math.min(Math.max(v, cfg.min), cfg.max);
+        const sv = document.getElementById('sv-' + cfg.col);
+        if (sv) sv.textContent = cfg.fmt(v);
+      }
+    });
+    updateSliderContribs(CORP_SLIDER_CONFIG, corpWhatIfShap);
+    updateScoreRing('corp-result-card', origScore);
+    renderSHAPChart('chart-shap-corp', corpWhatIfShap, '#4ade80', '#818cf8', shapCorpChart);
+    renderSHAPTable('corp-shap-table', corpWhatIfShap, Math.max(...corpWhatIfShap.map(s => Math.abs(s.contribution))));
+    document.getElementById('corp-whatif-delta').className = 'whatif-delta';
+  };
+}
+
+function debounceJobWhatIf() {
+  clearTimeout(jobWhatIfTimer);
+  jobWhatIfTimer = setTimeout(runJobWhatIf, 280);
+}
+function debounceCorpWhatIf() {
+  clearTimeout(corpWhatIfTimer);
+  corpWhatIfTimer = setTimeout(runCorpWhatIf, 280);
+}
+
+async function runJobWhatIf() {
+  const loading = document.getElementById('job-whatif-loading');
+  loading.classList.add('show');
+  try {
+    const resp = await fetch('/explain/job', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jobWhatIfPayload) });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    const shap = data.shap_values;
+    const newScore = data.ai_replacement_score;
+    const origScore = jobWhatIfOriginal._origScore || 0;
+
+    jobWhatIfShap = shap;
+    updateSliderContribs(JOB_SLIDER_CONFIG, shap);
+    updateScoreRing('job-result-card', newScore);
+    const maxAbs = Math.max(...shap.map(s => Math.abs(s.contribution)), 0.001);
+    shapJobChart = renderSHAPChart('chart-shap-job', shap, '#38bdf8', '#818cf8', shapJobChart);
+    renderSHAPTable('job-shap-table', shap, maxAbs);
+    showWhatIfDelta('job-whatif-delta', newScore, origScore, true);
+  } catch(e) {
+    console.warn('What-If job error:', e);
+  } finally {
+    loading.classList.remove('show');
+  }
+}
+
+async function runCorpWhatIf() {
+  const loading = document.getElementById('corp-whatif-loading');
+  loading.classList.add('show');
+  try {
+    const resp = await fetch('/explain/corporate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpWhatIfPayload) });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    const shap = data.shap_values;
+    const newScore = data.ai_maturity_score;
+    const origScore = corpWhatIfOriginal._origScore || 0;
+
+    corpWhatIfShap = shap;
+    updateSliderContribs(CORP_SLIDER_CONFIG, shap);
+    updateScoreRing('corp-result-card', newScore);
+    const maxAbs = Math.max(...shap.map(s => Math.abs(s.contribution)), 0.001);
+    shapCorpChart = renderSHAPChart('chart-shap-corp', shap, '#4ade80', '#818cf8', shapCorpChart);
+    renderSHAPTable('corp-shap-table', shap, maxAbs);
+    showWhatIfDelta('corp-whatif-delta', newScore, origScore, false);
+  } catch(e) {
+    console.warn('What-If corp error:', e);
+  } finally {
+    loading.classList.remove('show');
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // BOOT
