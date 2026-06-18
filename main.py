@@ -9,8 +9,6 @@ import pickle
 import types
 import sys
 import numpy as np
-import pandas as pd
-from sklearn.preprocessing import LabelEncoder
 import os
 from typing import Optional
 
@@ -27,6 +25,44 @@ app.add_middleware(
 
 # ── Anthropic client ────────────────────────────────────────────────────────
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+
+# ── Minimal LabelEncoder stub (no sklearn needed) ────────────────────────────
+# Registered in sys.modules so pickle can deserialize LabelEncoder objects
+# from the pkl files without the real scikit-learn being installed.
+class _LabelEncoder:
+    """Drop-in replacement for sklearn.preprocessing.LabelEncoder."""
+
+    def __init__(self):
+        self.classes_ = np.array([])
+
+    def __setstate__(self, state: dict):
+        self.__dict__.update(state)
+
+    def transform(self, values):
+        idx = {v: i for i, v in enumerate(self.classes_)}
+        return np.array([idx.get(v, 0) for v in values])
+
+
+def _register_sklearn_stub():
+    sklearn_mod = types.ModuleType("sklearn")
+    preprocessing_mod = types.ModuleType("sklearn.preprocessing")
+    preprocessing_mod.LabelEncoder = _LabelEncoder
+    sklearn_mod.preprocessing = preprocessing_mod
+
+    # Also satisfy any sub-imports pickle may trigger
+    utils_mod = types.ModuleType("sklearn.utils")
+    validation_mod = types.ModuleType("sklearn.utils.validation")
+    sklearn_mod.utils = utils_mod
+    utils_mod.validation = validation_mod
+
+    sys.modules.setdefault("sklearn", sklearn_mod)
+    sys.modules.setdefault("sklearn.preprocessing", preprocessing_mod)
+    sys.modules.setdefault("sklearn.utils", utils_mod)
+    sys.modules.setdefault("sklearn.utils.validation", validation_mod)
+
+
+_register_sklearn_stub()
 
 
 # ── pkl loader ──────────────────────────────────────────────────────────────
@@ -285,7 +321,7 @@ def predict_job(req: JobPredictRequest):
         "country_enc":   _safe_encode(le_dict.get("country"),   req.country),
     }
 
-    X = pd.DataFrame([row])[feature_cols]
+    X = np.array([[row[col] for col in feature_cols]], dtype=np.float32)
 
     score    = float(xgb_reg.predict(X)[0])
     risk_idx = int(xgb_clf.predict(X)[0])
@@ -326,7 +362,7 @@ def predict_corporate(req: CorpPredictRequest):
         "country_enc":  _safe_encode(le_dict.get("country"),  req.country),
     }
 
-    X = pd.DataFrame([row])[feature_cols]
+    X = np.array([[row[col] for col in feature_cols]], dtype=np.float32)
 
     score        = float(xgb_reg.predict(X)[0])
     adoption_idx = int(xgb_clf.predict(X)[0])
@@ -417,12 +453,12 @@ Generate the full ROI comparison report now."""
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _safe_encode(le: Optional[LabelEncoder], value: str) -> int:
+def _safe_encode(le, value: str) -> int:
     if le is None:
         return 0
     try:
         return int(le.transform([value])[0])
-    except ValueError:
+    except (ValueError, KeyError):
         return 0
 
 
