@@ -342,6 +342,125 @@
       .details-body { padding: 24px 16px 60px; }
     }
 
+    /* ─── SETTINGS PAGE ─── */
+    #page-settings {
+      flex-direction: column;
+      background: var(--bg);
+      overflow-y: auto;
+    }
+    .settings-header {
+      padding: 14px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .settings-header .logo { font-size: 18px; font-weight: 800; color: var(--primary); }
+    .settings-body {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 36px 24px 80px;
+      width: 100%;
+    }
+    .settings-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .settings-sub   { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+
+    .settings-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+    .settings-card-title {
+      font-size: 13px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .08em;
+      color: var(--accent); margin-bottom: 20px;
+    }
+
+    /* profile row */
+    .profile-row {
+      display: flex; align-items: center; gap: 18px; margin-bottom: 18px;
+    }
+    .profile-avatar {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: var(--surface2); border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 700; color: var(--primary);
+      flex-shrink: 0; overflow: hidden;
+    }
+    .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-meta .profile-name  { font-size: 16px; font-weight: 700; }
+    .profile-meta .profile-email { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .profile-badge {
+      display: inline-block; padding: 2px 10px; border-radius: 20px;
+      background: rgba(56,189,248,.12); color: var(--primary);
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; margin-top: 6px;
+    }
+
+    /* settings form reuse details-form styles */
+    .settings-form .form-group { margin-bottom: 14px; }
+    .settings-form .form-group label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px; }
+    .settings-form .form-group input,
+    .settings-form .form-group select,
+    .settings-form .form-group textarea {
+      width: 100%; padding: 11px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s; font-family: inherit;
+    }
+    .settings-form .form-group select option { background: var(--surface); }
+    .settings-form .form-group input:focus,
+    .settings-form .form-group select:focus,
+    .settings-form .form-group textarea:focus { border-color: var(--primary); }
+    .settings-form .form-group textarea { resize: vertical; min-height: 72px; }
+
+    .settings-actions {
+      display: flex; gap: 12px; margin-top: 8px;
+    }
+    .btn-save-settings {
+      flex: 1; padding: 13px;
+      background: var(--primary); color: #0f172a;
+      font-size: 14px; font-weight: 700;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: background .2s;
+    }
+    .btn-save-settings:hover { background: #7dd3fc; }
+    .btn-save-settings:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-discard {
+      padding: 13px 22px;
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); font-size: 14px; font-weight: 600;
+      border-radius: 10px; cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-discard:hover { border-color: var(--primary); color: var(--primary); }
+
+    .settings-toast {
+      display: none;
+      padding: 11px 18px;
+      background: rgba(74,222,128,.12); border: 1px solid var(--success);
+      border-radius: 10px; color: var(--success);
+      font-size: 13px; font-weight: 600;
+      margin-bottom: 18px; text-align: center;
+    }
+    .settings-toast.show { display: block; }
+
+    .danger-zone {
+      border-color: rgba(248,113,113,.3);
+    }
+    .danger-zone .settings-card-title { color: var(--danger); }
+    .btn-danger {
+      width: 100%; padding: 12px;
+      background: none; border: 1px solid var(--danger);
+      color: var(--danger); font-size: 14px; font-weight: 600;
+      border-radius: 10px; cursor: pointer;
+      transition: background .2s;
+    }
+    .btn-danger:hover { background: rgba(248,113,113,.08); }
+
     /* ─── PREDICT PAGE ─── */
     #page-predict {
       flex-direction: column;
@@ -635,6 +754,126 @@
   </div>
 </div>
 
+<!-- ═══ SETTINGS PAGE ═══ -->
+<div id="page-settings" class="page">
+  <div class="settings-header">
+    <div class="logo">AIvsHire — Settings</div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button class="btn-new" id="btn-settings-back">← Back to Chat</button>
+      <div class="user-pill">
+        <img id="settings-user-avatar" src="" alt="" onerror="this.style.display='none'"/>
+        <span id="settings-user-name">User</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-body">
+    <div class="settings-title">Settings</div>
+    <div class="settings-sub">Update your company profile or account details. Changes apply to your current session and future AI recommendations.</div>
+
+    <div class="settings-toast" id="settings-toast">✓ Settings saved successfully</div>
+
+    <!-- Account card -->
+    <div class="settings-card">
+      <div class="settings-card-title">Account</div>
+      <div class="profile-row">
+        <div class="profile-avatar" id="settings-avatar-wrap">
+          <img id="settings-avatar-img" src="" alt="" onerror="this.style.display='none'"/>
+          <span id="settings-avatar-initials"></span>
+        </div>
+        <div class="profile-meta">
+          <div class="profile-name" id="settings-display-name">—</div>
+          <div class="profile-email" id="settings-email">—</div>
+          <div class="profile-badge" id="settings-provider">—</div>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--muted);line-height:1.6;">
+        Account details are managed by your authentication provider. To change your name or profile photo, update them in your Google account or email provider.
+      </p>
+    </div>
+
+    <!-- Company details card -->
+    <div class="settings-card">
+      <div class="settings-card-title">Company Profile</div>
+      <form class="settings-form" id="settings-company-form" onsubmit="return false;">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Company Name</label>
+            <input type="text" id="s-company-name" placeholder="Acme Corp"/>
+          </div>
+          <div class="form-group">
+            <label>Industry</label>
+            <select id="s-industry">
+              <option>Technology</option><option>Finance</option><option>Healthcare</option>
+              <option>Retail</option><option>Manufacturing</option><option>Education</option>
+              <option>Logistics</option><option>Energy</option><option>Media</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Country</label>
+            <select id="s-country">
+              <option>United States</option><option>United Kingdom</option><option>Germany</option>
+              <option>India</option><option>Canada</option><option>Australia</option>
+              <option>France</option><option>Singapore</option><option>UAE</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Company Size</label>
+            <select id="s-size">
+              <option value="Startup (1-50)">Startup (1–50)</option>
+              <option value="SME (51-500)">SME (51–500)</option>
+              <option value="Mid-Market (501-5000)">Mid-Market (501–5,000)</option>
+              <option value="Enterprise (5000+)">Enterprise (5,000+)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Number of Employees</label>
+            <input type="number" id="s-employees" placeholder="500" min="1"/>
+          </div>
+          <div class="form-group">
+            <label>Average Employee Salary (USD/yr)</label>
+            <input type="number" id="s-salary" placeholder="75000" min="0"/>
+          </div>
+        </div>
+
+        <div class="section-label" style="margin-top:20px;">AI &amp; Training Investment</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Current AI Investment (USD/yr)</label>
+            <input type="number" id="s-ai-investment" placeholder="200000" min="0"/>
+          </div>
+          <div class="form-group">
+            <label>Training Hours per Employee (yr)</label>
+            <input type="number" id="s-training-hours" placeholder="40" min="0"/>
+          </div>
+          <div class="form-group">
+            <label>Current Automation Rate (%)</label>
+            <input type="number" id="s-automation" placeholder="25" min="0" max="100"/>
+          </div>
+          <div class="form-group span2">
+            <label>Main Business Challenge</label>
+            <textarea id="s-challenge" placeholder="e.g. Reducing operational costs while maintaining quality..."></textarea>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button class="btn-discard" id="btn-settings-discard" type="button">Discard Changes</button>
+          <button class="btn-save-settings" id="btn-settings-save" type="submit">Save Changes</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Danger zone -->
+    <div class="settings-card danger-zone">
+      <div class="settings-card-title">Session</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6;">
+        Resetting your session will clear the current conversation and company profile. You'll be taken back to the company details form.
+      </p>
+      <button class="btn-danger" id="btn-reset-session">Reset Session &amp; Start Over</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ PREDICT PAGE ═══ -->
 <div id="page-predict" class="page">
   <div class="predict-header">
@@ -893,6 +1132,7 @@
       <div class="chat-company" id="chat-company-label"></div>
     </div>
     <div class="chat-header-right">
+      <button class="btn-new" id="btn-open-settings" title="Settings">⚙ Settings</button>
       <button class="btn-new" id="btn-open-predict" title="Open SHAP Prediction Dashboard">🔬 Predictions</button>
       <button class="btn-new" id="btn-new-session">← Edit Details</button>
       <div class="user-pill">
@@ -1375,6 +1615,133 @@ function renderCharts(data) {
 
   wrap.scrollTop = wrap.scrollHeight;
 }
+
+// ═══════════════════════════════════════════════════════════
+// SETTINGS PAGE
+// ═══════════════════════════════════════════════════════════
+function openSettings() {
+  const u = currentUser;
+  if (!u) return;
+
+  // Populate account card
+  const name  = u.displayName || u.email || 'User';
+  const email = u.email || '';
+  const photo = u.photoURL || '';
+  const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  const provider = u.providerData?.[0]?.providerId === 'google.com' ? 'Google' : 'Email / Password';
+
+  document.getElementById('settings-user-name').textContent    = name;
+  document.getElementById('settings-user-avatar').src          = photo;
+  document.getElementById('settings-display-name').textContent = name;
+  document.getElementById('settings-email').textContent        = email;
+  document.getElementById('settings-provider').textContent     = provider;
+
+  const avatarImg      = document.getElementById('settings-avatar-img');
+  const avatarInitials = document.getElementById('settings-avatar-initials');
+  if (photo) {
+    avatarImg.src = photo;
+    avatarImg.style.display = 'block';
+    avatarInitials.style.display = 'none';
+  } else {
+    avatarImg.style.display = 'none';
+    avatarInitials.textContent = initials;
+    avatarInitials.style.display = 'inline';
+  }
+
+  // Populate company fields from current companyDetails
+  const cd = companyDetails || {};
+  document.getElementById('s-company-name').value    = cd.company_name    || '';
+  document.getElementById('s-employees').value       = cd.num_employees   || '';
+  document.getElementById('s-salary').value          = cd.avg_salary_usd  || '';
+  document.getElementById('s-ai-investment').value   = cd.current_ai_investment_usd || '';
+  document.getElementById('s-training-hours').value  = cd.current_training_hours    || '';
+  document.getElementById('s-automation').value      = cd.current_automation_rate   || '';
+  document.getElementById('s-challenge').value       = cd.main_challenge  || '';
+
+  // Match selects — fall back gracefully if no exact option
+  setSelectValue('s-industry', cd.industry);
+  setSelectValue('s-country',  cd.country);
+  setSelectValue('s-size',     cd.company_size);
+
+  document.getElementById('settings-toast').classList.remove('show');
+  showPage('settings');
+}
+
+function setSelectValue(id, value) {
+  if (!value) return;
+  const sel = document.getElementById(id);
+  for (const opt of sel.options) {
+    if (opt.value === value || opt.text === value) {
+      sel.value = opt.value;
+      return;
+    }
+  }
+  // value not in list — select closest or first
+}
+
+document.getElementById('btn-open-settings').addEventListener('click', openSettings);
+
+document.getElementById('btn-settings-back').addEventListener('click', () => {
+  showPage('chat');
+});
+
+document.getElementById('btn-settings-discard').addEventListener('click', () => {
+  openSettings(); // re-populate from current companyDetails (discard edits)
+  document.getElementById('settings-toast').classList.remove('show');
+});
+
+document.getElementById('btn-settings-save').addEventListener('click', () => {
+  const name = document.getElementById('s-company-name').value.trim();
+  if (!name) {
+    document.getElementById('s-company-name').focus();
+    document.getElementById('s-company-name').style.borderColor = 'var(--danger)';
+    setTimeout(() => document.getElementById('s-company-name').style.borderColor = '', 1500);
+    return;
+  }
+
+  // Update companyDetails in-place so chat + predict page use new values
+  companyDetails = {
+    ...(companyDetails || {}),
+    company_name:               name,
+    industry:                   document.getElementById('s-industry').value,
+    country:                    document.getElementById('s-country').value,
+    company_size:               document.getElementById('s-size').value,
+    num_employees:              parseInt(document.getElementById('s-employees').value)     || companyDetails?.num_employees   || 100,
+    avg_salary_usd:             parseFloat(document.getElementById('s-salary').value)     || companyDetails?.avg_salary_usd  || 50000,
+    current_ai_investment_usd:  parseFloat(document.getElementById('s-ai-investment').value)  || companyDetails?.current_ai_investment_usd || 0,
+    current_training_hours:     parseFloat(document.getElementById('s-training-hours').value) || companyDetails?.current_training_hours    || 0,
+    current_automation_rate:    parseFloat(document.getElementById('s-automation').value) || companyDetails?.current_automation_rate || 0,
+    main_challenge:             document.getElementById('s-challenge').value.trim() || companyDetails?.main_challenge || 'Not specified',
+  };
+
+  // Refresh the chat header label
+  document.getElementById('chat-company-label').textContent =
+    `${companyDetails.company_name} · ${companyDetails.industry} · ${companyDetails.country}`;
+
+  // Also sync the details-page form fields so "Edit Details" stays consistent
+  document.getElementById('f-company-name').value  = companyDetails.company_name;
+  document.getElementById('f-employees').value     = companyDetails.num_employees;
+  document.getElementById('f-salary').value        = companyDetails.avg_salary_usd;
+  document.getElementById('f-ai-investment').value = companyDetails.current_ai_investment_usd;
+  document.getElementById('f-training-hours').value = companyDetails.current_training_hours;
+  document.getElementById('f-automation').value    = companyDetails.current_automation_rate;
+  document.getElementById('f-challenge').value     = companyDetails.main_challenge;
+  setSelectValue('f-industry', companyDetails.industry);
+  setSelectValue('f-country',  companyDetails.country);
+  setSelectValue('f-size',     companyDetails.company_size);
+
+  const toast = document.getElementById('settings-toast');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3000);
+});
+
+document.getElementById('btn-reset-session').addEventListener('click', () => {
+  if (!confirm('Reset your session? This clears the current conversation and company profile.')) return;
+  companyDetails = null;
+  messages = []; msgCount = 0; analysisGenerated = false;
+  document.getElementById('chat-messages').innerHTML = '';
+  showPage('details');
+});
 
 // ═══════════════════════════════════════════════════════════
 // PREDICT PAGE — navigation
