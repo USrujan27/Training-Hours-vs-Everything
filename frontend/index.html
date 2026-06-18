@@ -1300,48 +1300,132 @@ let msgCount = 0;
 let analysisGenerated = false;
 let isSignup = false;
 
+// Store original button designs on script execution (Tasks 7 & 9)
+const btnGoogle = document.getElementById('btn-google-login');
+const btnEmail = document.getElementById('btn-email-login');
+const originalGoogleHtml = btnGoogle ? btnGoogle.innerHTML : '';
+const originalEmailText = btnEmail ? btnEmail.textContent : '';
+
+function setAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  if (el) {
+    el.style.color = '';
+    el.textContent = msg;
+  }
+}
+
+function resetAuthButtons() {
+  const bg = document.getElementById('btn-google-login');
+  const be = document.getElementById('btn-email-login');
+  if (bg) {
+    bg.disabled = false;
+    bg.innerHTML = originalGoogleHtml;
+  }
+  if (be) {
+    be.disabled = false;
+    be.textContent = isSignup ? 'Create account' : 'Sign in';
+  }
+}
+
+function disableAuthButtons() {
+  const bg = document.getElementById('btn-google-login');
+  const be = document.getElementById('btn-email-login');
+  if (bg) bg.disabled = true;
+  if (be) be.disabled = true;
+}
+
 // ═══════════════════════════════════════════════════════════
-// FIREBASE INIT (fetch config from backend)
+// FIREBASE INIT & HEALTH CHECK (Tasks 1 & 11)
 // ═══════════════════════════════════════════════════════════
 async function initFirebase() {
+  console.log('[AUTH] Starting Firebase initialization...');
+
+  // 1. Verify SDK Loaded
   if (typeof firebase === 'undefined') {
-    console.warn('Firebase SDK not loaded — check network/CDN access.');
-    setAuthError('Firebase failed to load. Please disable any ad-blockers or try a different browser.');
-    showPage('login');
+    console.error('[AUTH] Firebase SDK is not loaded.');
+    setAuthError('Authentication service is currently unavailable.');
+    disableAuthButtons();
     return;
   }
-  try {
-    const res = await fetch('/api/firebase-config');
-    const cfg = await res.json();
-    fbApp  = firebase.initializeApp(cfg);
-    fbAuth = firebase.auth();
 
-    // Handle redirect result first (Google sign-in returns here)
-    try {
-      const result = await fbAuth.getRedirectResult();
+  // 2. Verify Google Provider Available
+  if (typeof firebase.auth === 'undefined' || typeof firebase.auth.GoogleAuthProvider === 'undefined') {
+    console.error('[AUTH] Firebase Auth or GoogleAuthProvider is not available.');
+    setAuthError('Authentication service is currently unavailable.');
+    disableAuthButtons();
+    return;
+  }
+
+  // 3. Prevent multiple initializations
+  if (firebase.apps && firebase.apps.length > 0) {
+    console.warn('[AUTH] Firebase already initialized. Reusing active instance.');
+    fbApp = firebase.apps[0];
+    fbAuth = firebase.auth();
+    setupAuthStateListener();
+    return;
+  }
+
+  try {
+    // 4. Fetch Firebase Config
+    const res = await fetch('/api/firebase-config');
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Firebase config: Status ${res.status}`);
+    }
+    const cfg = await res.json();
+    if (!cfg || !cfg.apiKey || !cfg.projectId) {
+      throw new Error('Fetched configuration is missing required parameters.');
+    }
+
+    // Initialize App
+    fbApp = firebase.initializeApp(cfg);
+    fbAuth = firebase.auth();
+    console.log('[AUTH] Firebase initialized');
+
+    setupAuthStateListener();
+
+  } catch (e) {
+    console.error('[AUTH] Firebase initialization failed:', e);
+    setAuthError('Authentication service is currently unavailable.');
+    disableAuthButtons();
+    showPage('login');
+  }
+}
+
+function setupAuthStateListener() {
+  // Handle redirect result (Google sign-in return flow)
+  fbAuth.getRedirectResult()
+    .then(result => {
       if (result && result.user) {
+        console.log('[AUTH] Google login success:', result.user.email);
         currentUser = result.user;
         populateUserUI(currentUser);
         showPage('details');
-        return;
+        resetAuthButtons();
       }
-    } catch (e) {
-      setAuthError(e.message.replace('Firebase: ', '').replace(/\(auth.*\)\.?/, '').trim());
-    }
-
-    fbAuth.onAuthStateChanged(user => {
-      currentUser = user;
-      if (user) { populateUserUI(user); if (!companyDetails) showPage('details'); }
-      else showPage('login');
+    })
+    .catch(e => {
+      console.error('[AUTH] Google login failure:', e);
+      setAuthError(friendlyAuthError(e));
+      resetAuthButtons();
     });
-  } catch (e) {
-    console.error('Firebase init failed', e);
-    const msg = (e.code === 'auth/invalid-api-key' || String(e.message).includes('invalid-api-key'))
-      ? 'Firebase API key is missing. Add GOOGLE_API_KEY to your Replit Secrets and refresh.'
-      : 'Could not connect to authentication service. Please refresh and try again.';
-    setAuthError(msg);
-    showPage('login');
-  }
+
+  // Track session persistence
+  fbAuth.onAuthStateChanged(user => {
+    if (user) {
+      console.log('[AUTH] User authenticated:', user.email);
+      currentUser = user;
+      populateUserUI(user);
+      resetAuthButtons();
+      if (!companyDetails) {
+        showPage('details');
+      }
+    } else {
+      console.log('[AUTH] No active user session found.');
+      currentUser = null;
+      resetAuthButtons();
+      showPage('login');
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1353,7 +1437,7 @@ function showPage(name) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// AUTH — LOGIN
+// AUTH — GOOGLE (Tasks 2, 3 & 7)
 // ═══════════════════════════════════════════════════════════
 const inIframe = window !== window.top;
 if (inIframe) {
@@ -1366,7 +1450,7 @@ if (inIframe) {
 
 function authReady() {
   if (!fbAuth) {
-    setAuthError('Authentication service not available. Please add your Firebase API key in Secrets and refresh.');
+    setAuthError('Authentication service is currently unavailable.');
     return false;
   }
   return true;
@@ -1375,17 +1459,18 @@ function authReady() {
 function friendlyAuthError(e) {
   const code = e.code || '';
   const map = {
-    'auth/invalid-api-key':           'Firebase API key is missing or invalid. Add GOOGLE_API_KEY to Secrets.',
-    'auth/user-not-found':            'No account found with that email.',
-    'auth/wrong-password':            'Incorrect password.',
+    'auth/user-not-found':            'No account found with this email.',
+    'auth/wrong-password':            'Incorrect password. Please try again.',
+    'auth/invalid-email':             'Invalid email address format.',
+    'auth/too-many-requests':         'Too many failed attempts. Please try again later.',
+    'auth/email-already-in-use':      'This email is already registered.',
+    'auth/weak-password':             'Password must be at least 8 characters.',
+    'auth/popup-blocked':             'Popup was blocked. Please allow popups and try again.',
+    'auth/popup-closed-by-user':      'Google sign-in popup was closed before completing.',
+    'auth/network-request-failed':    'Network error. Please check your internet connection.',
+    'auth/unauthorized-domain':       'Google sign-in is not enabled for this domain.',
     'auth/invalid-credential':        'Email or password is incorrect.',
-    'auth/email-already-in-use':      'An account with this email already exists. Try signing in instead.',
-    'auth/weak-password':             'Password must be at least 6 characters.',
-    'auth/invalid-email':             'Please enter a valid email address.',
-    'auth/too-many-requests':         'Too many attempts. Please wait a few minutes and try again.',
-    'auth/network-request-failed':    'Network error. Check your connection and try again.',
-    'auth/popup-closed-by-user':      'Sign-in popup was closed. Please try again.',
-    'auth/cancelled-popup-request':   'Only one sign-in popup at a time. Please try again.',
+    'auth/invalid-api-key':           'Firebase API key is missing or invalid. Add GOOGLE_API_KEY to Secrets.',
     'auth/operation-not-allowed':     'This sign-in method is not enabled in your Firebase project.',
   };
   return map[code] || e.message.replace('Firebase: ', '').replace(/\(auth\/[\w-]+\)\.?/g, '').trim();
@@ -1397,27 +1482,51 @@ document.getElementById('btn-google-login').addEventListener('click', async () =
     return;
   }
   if (!authReady()) return;
+  
+  const bg = document.getElementById('btn-google-login');
+  const be = document.getElementById('btn-email-login');
+  
+  // Set loading states
+  bg.disabled = true;
+  be.disabled = true;
+  bg.innerHTML = 'Connecting...';
   setAuthError('');
-  const btn = document.getElementById('btn-google-login');
-  btn.disabled = true;
-  const origText = btn.innerHTML;
-  btn.textContent = 'Connecting to Google…';
+
+  console.log('[AUTH] Google login started');
   const provider = new firebase.auth.GoogleAuthProvider();
+
   try {
-    await fbAuth.signInWithPopup(provider);
-  } catch (e) {
-    if (e.code === 'auth/popup-blocked') {
-      try { await fbAuth.signInWithRedirect(provider); }
-      catch (e2) { setAuthError(friendlyAuthError(e2)); }
-    } else {
-      setAuthError(friendlyAuthError(e));
+    const result = await fbAuth.signInWithPopup(provider);
+    if (result && result.user) {
+      console.log('[AUTH] Google login success:', result.user.email);
+      currentUser = result.user;
+      populateUserUI(currentUser);
+      showPage('details');
+      resetAuthButtons();
     }
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = origText;
+  } catch (popupErr) {
+    console.warn('[AUTH] Popup login blocked or failed, trying redirect fallback:', popupErr);
+    
+    // Redirect Fallback
+    if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user') {
+      try {
+        await fbAuth.signInWithRedirect(provider);
+      } catch (redirectErr) {
+        console.error('[AUTH] Google login failure:', redirectErr);
+        setAuthError(friendlyAuthError(redirectErr));
+        resetAuthButtons();
+      }
+    } else {
+      console.error('[AUTH] Google login failure:', popupErr);
+      setAuthError(friendlyAuthError(popupErr));
+      resetAuthButtons();
+    }
   }
 });
 
+// ═══════════════════════════════════════════════════════════
+// AUTH — EMAIL (Tasks 4, 5 & 7)
+// ═══════════════════════════════════════════════════════════
 document.getElementById('btn-email-login').addEventListener('click', async () => {
   if (!authReady()) return;
   const email   = document.getElementById('login-email').value.trim();
@@ -1425,53 +1534,95 @@ document.getElementById('btn-email-login').addEventListener('click', async () =>
   const confirmPw = document.getElementById('login-confirm-pw').value;
   setAuthError('');
 
-  if (!email)        return setAuthError('Please enter your email address.');
-  if (!pw)           return setAuthError('Please enter your password.');
-  if (isSignup && pw.length < 6) return setAuthError('Password must be at least 6 characters.');
-  if (isSignup && pw !== confirmPw) return setAuthError('Passwords do not match.');
+  // Validations
+  if (!email) {
+    return setAuthError('Email address is required.');
+  }
+  if (!pw) {
+    return setAuthError('Password is required.');
+  }
 
-  const btn = document.getElementById('btn-email-login');
-  btn.disabled = true;
-  btn.textContent = isSignup ? 'Creating account…' : 'Signing in…';
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return setAuthError('Please enter a valid email address.');
+  }
+
+  if (isSignup && pw.length < 8) {
+    return setAuthError('Password must be at least 8 characters long.');
+  }
+  if (isSignup && pw !== confirmPw) {
+    return setAuthError('Passwords do not match.');
+  }
+
+  const bg = document.getElementById('btn-google-login');
+  const be = document.getElementById('btn-email-login');
+
+  // Set loading states
+  bg.disabled = true;
+  be.disabled = true;
+  be.textContent = isSignup ? 'Creating Account...' : 'Signing In...';
+
   try {
     if (isSignup) {
-      await fbAuth.createUserWithEmailAndPassword(email, pw);
+      console.log('[AUTH] Email signup started for:', email);
+      const result = await fbAuth.createUserWithEmailAndPassword(email, pw);
+      console.log('[AUTH] Email signup success:', result.user.email);
+      resetAuthButtons();
     } else {
-      await fbAuth.signInWithEmailAndPassword(email, pw);
+      console.log('[AUTH] Email login started for:', email);
+      const result = await fbAuth.signInWithEmailAndPassword(email, pw);
+      console.log('[AUTH] Email login success:', result.user.email);
+      resetAuthButtons();
     }
   } catch (e) {
+    console.error('[AUTH] Email auth failure:', e);
     setAuthError(friendlyAuthError(e));
-  } finally {
-    btn.disabled = false;
-    btn.textContent = isSignup ? 'Create account' : 'Sign in';
+    resetAuthButtons();
   }
 });
 
+// Toggle Sign In ↔ Sign Up (Task 6)
 document.getElementById('toggle-signup').addEventListener('click', () => {
   isSignup = !isSignup;
-  document.getElementById('btn-email-login').textContent      = isSignup ? 'Create account' : 'Sign in';
-  document.getElementById('toggle-signup').textContent        = isSignup ? 'Log in instead' : 'Sign up';
+  
+  // Clear error and fields
+  setAuthError('');
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-confirm-pw').value = '';
+  
+  // Update labels and reset state of buttons
+  resetAuthButtons();
+  document.getElementById('toggle-signup').textContent   = isSignup ? 'Log in instead' : 'Sign up';
   document.getElementById('toggle-auth-text').textContent     = isSignup ? 'Already have an account?' : "Don't have an account?";
   document.getElementById('confirm-pw-group').style.display   = isSignup ? 'block' : 'none';
   document.getElementById('pw-hint').style.display            = isSignup ? 'block' : 'none';
   document.getElementById('forgot-pw-wrap').style.display     = isSignup ? 'none'  : 'block';
-  document.getElementById('login-confirm-pw').value = '';
-  setAuthError('');
 });
 
 document.getElementById('btn-forgot-pw').addEventListener('click', async () => {
   if (!authReady()) return;
   const email = document.getElementById('login-email').value.trim();
   if (!email) return setAuthError('Enter your email address above, then click "Forgot password?".');
+  
+  const bg = document.getElementById('btn-google-login');
+  const be = document.getElementById('btn-email-login');
+  bg.disabled = true;
+  be.disabled = true;
+
   try {
     await fbAuth.sendPasswordResetEmail(email);
     setAuthError('');
     const el = document.getElementById('auth-error');
-    el.style.color = 'var(--success)';
-    el.textContent = `Password reset email sent to ${email}. Check your inbox.`;
-    setTimeout(() => { el.style.color = ''; el.textContent = ''; }, 6000);
+    if (el) {
+      el.style.color = 'var(--success)';
+      el.textContent = `Password reset email sent to ${email}. Check your inbox.`;
+      setTimeout(() => { el.style.color = ''; el.textContent = ''; }, 6000);
+    }
   } catch (e) {
     setAuthError(friendlyAuthError(e));
+  } finally {
+    resetAuthButtons();
   }
 });
 
@@ -1488,20 +1639,30 @@ document.getElementById('login-confirm-pw').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('btn-email-login').click();
 });
 
-function setAuthError(msg) {
-  const el = document.getElementById('auth-error');
-  el.style.color = '';
-  el.textContent = msg;
-}
-
 // ═══════════════════════════════════════════════════════════
-// AUTH — SIGN OUT
+// AUTH — SIGN OUT (Task 9 & 10)
 // ═══════════════════════════════════════════════════════════
 function signOut() {
-  if (fbAuth) fbAuth.signOut();
-  companyDetails = null; messages = []; msgCount = 0; analysisGenerated = false;
+  console.log('[AUTH] Logging out user...');
+  if (fbAuth) {
+    fbAuth.signOut()
+      .then(() => {
+        console.log('[AUTH] User signed out successfully.');
+      })
+      .catch(e => {
+        console.error('[AUTH] Firebase signOut error:', e);
+      });
+  }
+  // Clear all states
+  currentUser = null;
+  companyDetails = null;
+  messages = [];
+  msgCount = 0;
+  analysisGenerated = false;
+  resetAuthButtons();
   showPage('login');
 }
+
 document.getElementById('btn-signout').addEventListener('click', signOut);
 document.getElementById('btn-signout2').addEventListener('click', signOut);
 

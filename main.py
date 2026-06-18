@@ -28,13 +28,16 @@ app.add_middleware(
 # ── Static libs (Firebase SDK served locally) ────────────────────────────────
 app.mount("/lib", StaticFiles(directory="frontend/lib"), name="lib")
 
-# ── OpenAI client ────────────────────────────────────────────────────────────
-_api_key = os.environ.get("OPENAI_API_KEY")
+# ── Gemini (OpenAI compatibility) client ──────────────────────────────────────
+_api_key = os.environ.get("GEMINI_API_KEY")
 if not _api_key:
-    print("WARNING: OPENAI_API_KEY not set — /chat and /compare/roi will return 503")
-client = openai.OpenAI(api_key=_api_key) if _api_key else None
+    print("WARNING: GEMINI_API_KEY not set — /chat and /compare/roi will return 503")
+client = openai.OpenAI(
+    api_key=_api_key,
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+) if _api_key else None
 
-MODEL = "gpt-4o-mini"
+MODEL = "gemini-2.5-flash"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -265,7 +268,7 @@ def health():
 @app.post("/chat")
 def chat(req: ChatRequest):
     if client is None:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured.")
     system   = build_system_prompt(req.company_details)
     messages = [{"role": "system", "content": system}] + [
         {"role": m.role, "content": m.content} for m in req.messages
@@ -278,9 +281,9 @@ def chat(req: ChatRequest):
         )
         return {"reply": response.choices[0].message.content}
     except openai.RateLimitError:
-        raise HTTPException(status_code=429, detail="OpenAI quota exceeded. Please add billing credits at platform.openai.com/settings/billing.")
+        raise HTTPException(status_code=429, detail="Gemini quota exceeded or rate limited. Please check your API key quota.")
     except openai.AuthenticationError:
-        raise HTTPException(status_code=401, detail="Invalid OpenAI API key.")
+        raise HTTPException(status_code=401, detail="Invalid Gemini API key.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -288,7 +291,7 @@ def chat(req: ChatRequest):
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest):
     if client is None:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured.")
     system   = build_system_prompt(req.company_details)
     messages = [{"role": "system", "content": system}] + [
         {"role": m.role, "content": m.content} for m in req.messages
@@ -393,7 +396,7 @@ def predict_corporate(req: CorpPredictRequest):
 @app.post("/compare/roi")
 def compare_roi(req: ROIComparisonRequest):
     if client is None:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured.")
 
     system = """You are AIvsHire, an expert business ROI analyst.
 
@@ -462,7 +465,7 @@ Generate the full ROI comparison report now."""
 @app.post("/compare/roi/structured")
 def compare_roi_structured(req: ROIComparisonRequest):
     if client is None:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured.")
 
     c = req.company_details
     history_text = "\n".join(f"{m.role.upper()}: {m.content}" for m in req.chat_history)
