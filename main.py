@@ -50,7 +50,6 @@ def _register_sklearn_stub():
     preprocessing_mod.LabelEncoder = _LabelEncoder
     sklearn_mod.preprocessing = preprocessing_mod
 
-    # Also satisfy any sub-imports pickle may trigger
     utils_mod = types.ModuleType("sklearn.utils")
     validation_mod = types.ModuleType("sklearn.utils.validation")
     sklearn_mod.utils = utils_mod
@@ -67,6 +66,7 @@ _register_sklearn_stub()
 
 # ── pkl loader ──────────────────────────────────────────────────────────────
 def load_pkl(path: str):
+    """Load a pickle file, stubbing __main__ to avoid missing-symbol errors."""
     dummy = types.ModuleType("__main__")
     dummy.run_monte_carlo_job  = lambda *a, **k: None
     dummy.run_monte_carlo_corp = lambda *a, **k: None
@@ -81,7 +81,7 @@ def load_pkl(path: str):
     return data
 
 
-# ── Load models ─────────────────────────────────────────────────────────────
+# ── Load models (optional — app runs fine without them) ─────────────────────
 job_models  = None
 corp_models = None
 
@@ -90,7 +90,7 @@ try:
     print("✅ Job replacement models loaded")
     print("   features:", job_models["feature_cols"])
 except FileNotFoundError:
-    print("⚠️  job_replacement_models.pkl not found")
+    print("⚠️  job_replacement_models.pkl not found — /predict/job will return 503")
 except Exception as e:
     print(f"⚠️  Could not load job models: {e}")
 
@@ -99,7 +99,7 @@ try:
     print("✅ Corporate adoption models loaded")
     print("   features:", corp_models["feature_cols"])
 except FileNotFoundError:
-    print("⚠️  corporate_adoption_models.pkl not found")
+    print("⚠️  corporate_adoption_models.pkl not found — /predict/corporate will return 503")
 except Exception as e:
     print(f"⚠️  Could not load corp models: {e}")
 
@@ -112,17 +112,17 @@ class CompanyDetails(BaseModel):
     company_name: str
     industry: str
     country: str
-    company_size: str           # "Small", "Medium", "Large"
+    company_size: str
     current_ai_investment_usd: float
     current_training_hours: float
     num_employees: int
     avg_salary_usd: float
-    current_automation_rate: float   # 0-100 percent
-    main_challenge: str              # e.g. "productivity", "cost", "growth"
+    current_automation_rate: float
+    main_challenge: str
 
 
 class Message(BaseModel):
-    role: str       # "user" or "assistant"
+    role: str
     content: str
 
 
@@ -136,7 +136,6 @@ class ROIComparisonRequest(BaseModel):
     chat_history: list[Message]
 
 
-# ── Job prediction schema ───────────────────────────────────────────────────
 class JobPredictRequest(BaseModel):
     job_role: str
     industry: str
@@ -157,7 +156,6 @@ class JobPredictRequest(BaseModel):
     ai_disruption_intensity: float
 
 
-# ── Corporate prediction schema ─────────────────────────────────────────────
 class CorpPredictRequest(BaseModel):
     industry: str
     country: str
@@ -172,7 +170,7 @@ class CorpPredictRequest(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SYSTEM PROMPT — Company ROI Advisor
+# SYSTEM PROMPT
 # ═══════════════════════════════════════════════════════════════════════════
 
 def build_system_prompt(company: Optional[CompanyDetails] = None) -> str:
@@ -235,7 +233,8 @@ def root():
     return {
         "message": "AIvsHire API is running 🚀",
         "version": "2.0.0",
-        "purpose": "AI vs Employee ROI Comparison for Companies"
+        "purpose": "AI vs Employee ROI Comparison for Companies",
+        "ml_predictions": job_models is not None or corp_models is not None,
     }
 
 
@@ -250,12 +249,10 @@ def health():
     }
 
 
-# ── Chat (non-streaming) ─────────────────────────────────────────────────────
 @app.post("/chat")
 def chat(req: ChatRequest):
     system   = build_system_prompt(req.company_details)
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
-
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
@@ -265,7 +262,6 @@ def chat(req: ChatRequest):
     return {"reply": response.content[0].text}
 
 
-# ── Chat (streaming) ──────────────────────────────────────────────────────────
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest):
     system   = build_system_prompt(req.company_details)
@@ -289,11 +285,13 @@ def chat_stream(req: ChatRequest):
     )
 
 
-# ── Predict: Job Replacement Risk ────────────────────────────────────────────
 @app.post("/predict/job")
 def predict_job(req: JobPredictRequest):
     if job_models is None:
-        raise HTTPException(status_code=503, detail="Job models not loaded")
+        raise HTTPException(
+            status_code=503,
+            detail="Job models not loaded. Add job_replacement_models.pkl to enable predictions.",
+        )
 
     le_dict      = job_models["label_encoders"]
     feature_cols = job_models["feature_cols"]
@@ -337,11 +335,13 @@ def predict_job(req: JobPredictRequest):
     }
 
 
-# ── Predict: Corporate AI Adoption ───────────────────────────────────────────
 @app.post("/predict/corporate")
 def predict_corporate(req: CorpPredictRequest):
     if corp_models is None:
-        raise HTTPException(status_code=503, detail="Corporate models not loaded")
+        raise HTTPException(
+            status_code=503,
+            detail="Corporate models not loaded. Add corporate_adoption_models.pkl to enable predictions.",
+        )
 
     le_dict         = corp_models["label_encoders"]
     feature_cols    = corp_models["feature_cols"]
@@ -377,16 +377,8 @@ def predict_corporate(req: CorpPredictRequest):
     }
 
 
-# ── ROI Comparison — THE MAIN ENDPOINT ───────────────────────────────────────
 @app.post("/compare/roi")
 def compare_roi(req: ROIComparisonRequest):
-    """
-    The core endpoint of the project.
-    Takes company details + chat history and returns:
-    - Should they invest in AI or Employee Training (or both)?
-    - Clear ROI comparison with numbers
-    - Recommendation with reasoning
-    """
     system = """You are AIvsHire, an expert business ROI analyst.
 
 Given a company's profile and their conversation, generate a structured ROI comparison report.
