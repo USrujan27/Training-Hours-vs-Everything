@@ -1,7 +1,8 @@
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import openai
 import json
@@ -220,69 +221,22 @@ Start by acknowledging their situation and asking deeper questions about their s
 # ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=FileResponse)
 def root():
-    job_ok  = "✅" if job_bundle  is not None else "❌"
-    corp_ok = "✅" if corp_bundle is not None else "❌"
-    chat_ok = "✅" if client      is not None else "❌"
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>AIvsHire API</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 40px; }}
-    h1 {{ color: #38bdf8; margin-bottom: 4px; }}
-    p  {{ color: #94a3b8; margin-top: 0; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 32px; }}
-    .card {{ background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }}
-    .card h3 {{ margin: 0 0 8px; color: #7dd3fc; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; }}
-    .card p  {{ margin: 0; font-size: 15px; color: #cbd5e1; }}
-    .status {{ font-size: 13px; margin-top: 6px; }}
-    a {{ color: #38bdf8; text-decoration: none; }}
-    a:hover {{ text-decoration: underline; }}
-    .badge {{ display: inline-block; background: #0ea5e9; color: #fff; border-radius: 6px; padding: 2px 8px; font-size: 12px; margin-left: 8px; }}
-  </style>
-</head>
-<body>
-  <h1>AIvsHire API <span class="badge">v2.0.0</span></h1>
-  <p>AI vs Employee ROI Comparison Platform</p>
+    return FileResponse("frontend/index.html")
 
-  <div class="grid">
-    <div class="card">
-      <h3>Status</h3>
-      <p class="status">{job_ok} Job replacement model</p>
-      <p class="status">{corp_ok} Corporate adoption model</p>
-      <p class="status">{chat_ok} AI chat (OpenAI)</p>
-    </div>
-    <div class="card">
-      <h3>AI Chat</h3>
-      <p>POST <code>/chat</code> — advisory chat</p>
-      <p>POST <code>/chat/stream</code> — streaming chat</p>
-    </div>
-    <div class="card">
-      <h3>ML Predictions</h3>
-      <p>POST <code>/predict/job</code></p>
-      <p>POST <code>/predict/corporate</code></p>
-    </div>
-    <div class="card">
-      <h3>Analysis</h3>
-      <p>POST <code>/compare/roi</code> — full ROI report</p>
-    </div>
-    <div class="card">
-      <h3>Kaggle Datasets</h3>
-      <p>POST <code>/datasets/fetch</code> — download a dataset</p>
-      <p>GET &nbsp;<code>/datasets/list</code> — list cached datasets</p>
-    </div>
-    <div class="card">
-      <h3>Docs</h3>
-      <p><a href="/docs">Interactive API docs →</a></p>
-      <p><a href="/health">Health check →</a></p>
-    </div>
-  </div>
-</body>
-</html>"""
+
+@app.get("/api/firebase-config")
+def firebase_config():
+    return {
+        "apiKey":            os.environ.get("GOOGLE_API_KEY", ""),
+        "authDomain":        "insider-fa38d.firebaseapp.com",
+        "projectId":         "insider-fa38d",
+        "storageBucket":     "insider-fa38d.firebasestorage.app",
+        "messagingSenderId": "171312393255",
+        "appId":             "1:171312393255:web:07d8e4081480162357f202",
+        "measurementId":     "G-03ZP55MWBC",
+    }
 
 
 @app.get("/health")
@@ -483,6 +437,61 @@ Generate the full ROI comparison report now."""
         ],
     )
     return {"roi_comparison": response.choices[0].message.content}
+
+
+@app.post("/compare/roi/structured")
+def compare_roi_structured(req: ROIComparisonRequest):
+    if client is None:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
+
+    c = req.company_details
+    history_text = "\n".join(f"{m.role.upper()}: {m.content}" for m in req.chat_history)
+
+    system = """You are an expert ROI data analyst. Based on the company profile and conversation,
+return ONLY a valid JSON object (no markdown, no explanation) with these exact fields:
+{
+  "ai_roi_score": <number 0-100>,
+  "training_roi_score": <number 0-100>,
+  "ai_allocation": <recommended % to allocate to AI, 0-100>,
+  "training_allocation": <recommended % to allocate to training, 0-100>,
+  "ai_roi_months": <months until ROI for AI investment>,
+  "training_roi_months": <months until ROI for training investment>,
+  "ai_radar": [cost_efficiency, scalability, speed, sustainability, low_risk],
+  "training_radar": [cost_efficiency, scalability, speed, sustainability, low_risk],
+  "recommendation": "AI-First" | "Employee-First" | "Hybrid"
+}
+All radar values must be 0-100. ai_allocation + training_allocation must equal 100."""
+
+    user_prompt = f"""Company: {c.company_name} | {c.industry} | {c.country} | {c.company_size}
+Employees: {c.num_employees} | Avg Salary: ${c.avg_salary_usd:,.0f}
+AI Investment: ${c.current_ai_investment_usd:,.0f}/yr | Training: {c.current_training_hours} hrs/employee/yr
+Automation Rate: {c.current_automation_rate}% | Challenge: {c.main_challenge}
+
+Conversation:
+{history_text}
+
+Return only the JSON object."""
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        max_tokens=400,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ],
+        response_format={"type": "json_object"},
+    )
+    try:
+        return json.loads(response.choices[0].message.content)
+    except Exception:
+        return {
+            "ai_roi_score": 65, "training_roi_score": 70,
+            "ai_allocation": 40, "training_allocation": 60,
+            "ai_roi_months": 12, "training_roi_months": 18,
+            "ai_radar": [75, 85, 80, 60, 55],
+            "training_radar": [65, 60, 50, 85, 80],
+            "recommendation": "Hybrid"
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AIvsHire — AI vs Employee ROI Advisor</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface2: #273549;
+      --border: #334155;
+      --primary: #38bdf8;
+      --primary-dark: #0284c7;
+      --accent: #818cf8;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --danger: #f87171;
+      --success: #4ade80;
+      --user-bubble: #0284c7;
+      --ai-bubble: #1e293b;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ─── PAGES ─── */
+    .page { display: none; width: 100%; height: 100vh; }
+    .page.active { display: flex; }
+
+    /* ─── LOGIN PAGE ─── */
+    #page-login {
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(ellipse at 60% 30%, #0c2a4a 0%, #0f172a 70%);
+    }
+    .login-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px 40px;
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+    }
+    .login-logo { font-size: 28px; font-weight: 800; color: var(--primary); margin-bottom: 6px; }
+    .login-tagline { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+
+    .btn-google {
+      width: 100%;
+      padding: 13px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: background .2s, border-color .2s;
+    }
+    .btn-google:hover { background: #2d3f55; border-color: var(--primary); }
+    .btn-google svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+    .divider {
+      display: flex; align-items: center; gap: 12px;
+      margin: 22px 0; color: var(--muted); font-size: 13px;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    .form-group { margin-bottom: 14px; text-align: left; }
+    .form-group label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .form-group input {
+      width: 100%; padding: 12px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s;
+    }
+    .form-group input:focus { border-color: var(--primary); }
+
+    .btn-primary {
+      width: 100%; padding: 13px;
+      background: var(--primary); color: #0f172a;
+      font-size: 15px; font-weight: 700;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: background .2s, transform .1s;
+    }
+    .btn-primary:hover { background: #7dd3fc; }
+    .btn-primary:active { transform: scale(.98); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    .toggle-auth { margin-top: 18px; font-size: 13px; color: var(--muted); }
+    .toggle-auth a { color: var(--primary); cursor: pointer; text-decoration: none; }
+    .toggle-auth a:hover { text-decoration: underline; }
+    .auth-error { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+    /* ─── DETAILS PAGE ─── */
+    #page-details {
+      flex-direction: column;
+      background: var(--bg);
+      overflow-y: auto;
+    }
+    .details-header {
+      padding: 18px 32px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .details-header .logo { font-size: 20px; font-weight: 800; color: var(--primary); }
+    .user-pill {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 30px; padding: 6px 14px;
+    }
+    .user-pill img { width: 28px; height: 28px; border-radius: 50%; }
+    .user-pill span { font-size: 13px; color: var(--muted); }
+    .btn-signout {
+      background: none; border: none; color: var(--muted);
+      font-size: 13px; cursor: pointer; margin-left: 4px;
+    }
+    .btn-signout:hover { color: var(--danger); }
+
+    .details-body {
+      max-width: 760px; margin: 0 auto; padding: 40px 24px 60px;
+      width: 100%;
+    }
+    .details-title { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+    .details-sub { color: var(--muted); margin-bottom: 32px; font-size: 15px; }
+
+    .section-label {
+      font-size: 11px; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--accent);
+      margin-bottom: 14px; margin-top: 28px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .form-grid .span2 { grid-column: span 2; }
+    .details-form .form-group { margin-bottom: 0; }
+    .details-form .form-group label { font-size: 12px; }
+    .details-form .form-group input,
+    .details-form .form-group select,
+    .details-form .form-group textarea {
+      width: 100%; padding: 11px 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px;
+      outline: none; transition: border-color .2s; font-family: inherit;
+    }
+    .details-form .form-group select option { background: var(--surface); }
+    .details-form .form-group input:focus,
+    .details-form .form-group select:focus,
+    .details-form .form-group textarea:focus { border-color: var(--primary); }
+    .details-form .form-group textarea { resize: vertical; min-height: 80px; }
+
+    .btn-start {
+      margin-top: 32px; width: 100%; padding: 15px;
+      background: var(--primary); color: #0f172a;
+      font-size: 16px; font-weight: 700;
+      border: none; border-radius: 12px; cursor: pointer;
+      transition: background .2s;
+    }
+    .btn-start:hover { background: #7dd3fc; }
+
+    /* ─── CHAT PAGE ─── */
+    #page-chat {
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .chat-header {
+      padding: 14px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .chat-header-left { display: flex; flex-direction: column; }
+    .chat-header-left .logo { font-size: 18px; font-weight: 800; color: var(--primary); }
+    .chat-company { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .chat-header-right { display: flex; align-items: center; gap: 10px; }
+    .btn-new {
+      padding: 7px 14px;
+      background: none; border: 1px solid var(--border);
+      border-radius: 8px; color: var(--muted); font-size: 13px; cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-new:hover { border-color: var(--primary); color: var(--primary); }
+
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 24px 16px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .chat-messages::-webkit-scrollbar { width: 6px; }
+    .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .msg {
+      display: flex; gap: 12px; max-width: 85%;
+      animation: fadeUp .25s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+    .msg.ai   { align-self: flex-start; }
+
+    .msg-avatar {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; flex-shrink: 0; margin-top: 2px;
+    }
+    .msg.ai .msg-avatar   { background: var(--accent); color: #fff; }
+    .msg.user .msg-avatar { background: var(--user-bubble); color: #fff; }
+
+    .msg-bubble {
+      padding: 13px 16px;
+      border-radius: 16px;
+      font-size: 14px; line-height: 1.6;
+      max-width: 100%;
+    }
+    .msg.ai .msg-bubble {
+      background: var(--ai-bubble);
+      border: 1px solid var(--border);
+      border-top-left-radius: 4px;
+      color: var(--text);
+    }
+    .msg.user .msg-bubble {
+      background: var(--user-bubble);
+      border-top-right-radius: 4px;
+      color: #fff;
+    }
+    .msg-bubble p { margin-bottom: 8px; }
+    .msg-bubble p:last-child { margin-bottom: 0; }
+    .msg-bubble h2, .msg-bubble h3 { color: var(--primary); margin: 12px 0 6px; }
+    .msg-bubble ul, .msg-bubble ol { padding-left: 18px; margin-bottom: 8px; }
+    .msg-bubble li { margin-bottom: 4px; }
+    .msg-bubble code { background: #0f172a; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .msg-bubble strong { color: #fff; }
+    .msg-bubble table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+    .msg-bubble th { background: #273549; padding: 8px 12px; text-align: left; border: 1px solid var(--border); color: var(--primary); }
+    .msg-bubble td { padding: 8px 12px; border: 1px solid var(--border); }
+    .msg-bubble tr:hover td { background: #1a2d42; }
+
+    .typing-indicator {
+      display: flex; align-items: center; gap: 5px; padding: 14px 16px;
+    }
+    .typing-indicator span {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); display: inline-block;
+      animation: bounce 1.2s infinite;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: .2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: .4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: .4; }
+      30%            { transform: translateY(-6px); opacity: 1; }
+    }
+
+    /* Charts inside chat */
+    .chart-block {
+      margin-top: 16px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .chart-block h4 { font-size: 13px; color: var(--accent); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .chart-container { position: relative; height: 200px; }
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Analysis action button */
+    .analysis-btn-wrap {
+      display: flex; justify-content: center; padding: 4px 0 8px;
+    }
+    .btn-analysis {
+      padding: 10px 24px;
+      background: linear-gradient(135deg, var(--accent), var(--primary));
+      color: #fff; font-size: 14px; font-weight: 600;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      box-shadow: 0 4px 14px rgba(56,189,248,.3);
+    }
+    .btn-analysis:hover { opacity: .9; }
+    .btn-analysis:active { transform: scale(.97); }
+    .btn-analysis:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Chat input */
+    .chat-input-area {
+      padding: 14px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex; gap: 10px; align-items: flex-end;
+      flex-shrink: 0;
+    }
+    .chat-input-area textarea {
+      flex: 1; padding: 12px 16px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 12px; color: var(--text); font-size: 14px;
+      outline: none; resize: none; max-height: 120px;
+      font-family: inherit; line-height: 1.5;
+      transition: border-color .2s;
+    }
+    .chat-input-area textarea:focus { border-color: var(--primary); }
+    .btn-send {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: var(--primary); border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background .2s;
+    }
+    .btn-send:hover { background: #7dd3fc; }
+    .btn-send:disabled { background: var(--border); cursor: not-allowed; }
+    .btn-send svg { width: 20px; height: 20px; color: #0f172a; }
+
+    @media (max-width: 600px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid .span2 { grid-column: span 1; }
+      .charts-grid { grid-template-columns: 1fr; }
+      .login-box { padding: 32px 22px; margin: 16px; }
+      .details-body { padding: 24px 16px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══ LOGIN PAGE ═══ -->
+<div id="page-login" class="page active">
+  <div class="login-box">
+    <div class="login-logo">AIvsHire</div>
+    <div class="login-tagline">AI vs Employee ROI Advisor for Business Leaders</div>
+
+    <button class="btn-google" id="btn-google-login">
+      <svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.2 0 5.9 1.1 8.1 2.9l6-6C34.2 3.1 29.4 1 24 1 14.8 1 7 6.7 3.7 14.6l7 5.4C12.4 13.8 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.4 5.7c4.3-4 6.8-9.9 7.2-16.9z"/><path fill="#FBBC05" d="M10.7 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.1.7-4.6l-7-5.4A23 23 0 0 0 1 24c0 3.7.9 7.2 2.5 10.3l7.2-5.7z"/><path fill="#34A853" d="M24 47c5.4 0 9.9-1.8 13.2-4.8l-7.4-5.7c-1.8 1.2-4.1 2-5.8 2-6.2 0-11.5-4.2-13.4-9.9l-7.2 5.7C7 41.3 14.8 47 24 47z"/></svg>
+      Continue with Google
+    </button>
+
+    <div class="divider">or</div>
+
+    <div id="email-form">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="you@company.com" autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/>
+      </div>
+      <button class="btn-primary" id="btn-email-login">Sign in</button>
+      <div class="auth-error" id="auth-error"></div>
+      <div class="toggle-auth">
+        Don't have an account? <a id="toggle-signup">Sign up</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DETAILS PAGE ═══ -->
+<div id="page-details" class="page">
+  <div class="details-header">
+    <div class="logo">AIvsHire</div>
+    <div class="user-pill">
+      <img id="user-avatar" src="" alt="avatar" onerror="this.style.display='none'"/>
+      <span id="user-name">User</span>
+      <button class="btn-signout" id="btn-signout">Sign out</button>
+    </div>
+  </div>
+  <div class="details-body">
+    <div class="details-title">Tell us about your company</div>
+    <div class="details-sub">This helps our AI give you a precise, data-driven recommendation.</div>
+
+    <form class="details-form" id="details-form" onsubmit="return false;">
+      <div class="section-label">Company Overview</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Company Name</label>
+          <input type="text" id="f-company-name" placeholder="Acme Corp" required/>
+        </div>
+        <div class="form-group">
+          <label>Industry</label>
+          <select id="f-industry">
+            <option>Technology</option><option>Finance</option><option>Healthcare</option>
+            <option>Retail</option><option>Manufacturing</option><option>Education</option>
+            <option>Logistics</option><option>Energy</option><option>Media</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Country</label>
+          <select id="f-country">
+            <option>United States</option><option>United Kingdom</option><option>Germany</option>
+            <option>India</option><option>Canada</option><option>Australia</option>
+            <option>France</option><option>Singapore</option><option>UAE</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Company Size</label>
+          <select id="f-size">
+            <option value="Startup (1-50)">Startup (1–50)</option>
+            <option value="SME (51-500)">SME (51–500)</option>
+            <option value="Mid-Market (501-5000)">Mid-Market (501–5,000)</option>
+            <option value="Enterprise (5000+)">Enterprise (5,000+)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Number of Employees</label>
+          <input type="number" id="f-employees" placeholder="500" min="1"/>
+        </div>
+        <div class="form-group">
+          <label>Average Employee Salary (USD/yr)</label>
+          <input type="number" id="f-salary" placeholder="75000" min="0"/>
+        </div>
+      </div>
+
+      <div class="section-label">AI & Training Investment</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Current AI Investment (USD/yr)</label>
+          <input type="number" id="f-ai-investment" placeholder="200000" min="0"/>
+        </div>
+        <div class="form-group">
+          <label>Training Hours per Employee (yr)</label>
+          <input type="number" id="f-training-hours" placeholder="40" min="0"/>
+        </div>
+        <div class="form-group">
+          <label>Current Automation Rate (%)</label>
+          <input type="number" id="f-automation" placeholder="25" min="0" max="100"/>
+        </div>
+        <div class="form-group span2">
+          <label>Main Business Challenge</label>
+          <textarea id="f-challenge" placeholder="e.g. Reducing operational costs while maintaining quality, struggling with talent retention..."></textarea>
+        </div>
+      </div>
+
+      <button class="btn-start" type="submit" id="btn-start">Start My Analysis →</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ CHAT PAGE ═══ -->
+<div id="page-chat" class="page">
+  <div class="chat-header">
+    <div class="chat-header-left">
+      <div class="logo">AIvsHire</div>
+      <div class="chat-company" id="chat-company-label"></div>
+    </div>
+    <div class="chat-header-right">
+      <button class="btn-new" id="btn-new-session">← Edit Details</button>
+      <div class="user-pill">
+        <img id="chat-user-avatar" src="" alt="" onerror="this.style.display='none'"/>
+        <span id="chat-user-name">User</span>
+        <button class="btn-signout" id="btn-signout2">Sign out</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat-messages" id="chat-messages"></div>
+
+  <div class="chat-input-area">
+    <textarea id="chat-input" placeholder="Type your message…" rows="1"></textarea>
+    <button class="btn-send" id="btn-send" title="Send">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let fbApp, fbAuth;
+let currentUser = null;
+let companyDetails = null;
+let messages = [];       // [{role, content}]
+let msgCount = 0;
+let analysisGenerated = false;
+let isSignup = false;
+
+// ═══════════════════════════════════════════════════════════
+// FIREBASE INIT (fetch config from backend)
+// ═══════════════════════════════════════════════════════════
+async function initFirebase() {
+  try {
+    const res = await fetch('/api/firebase-config');
+    const cfg = await res.json();
+    fbApp  = firebase.initializeApp(cfg);
+    fbAuth = firebase.auth();
+    fbAuth.onAuthStateChanged(user => {
+      currentUser = user;
+      if (user && !companyDetails) showPage('details');
+      else if (!user) showPage('login');
+    });
+  } catch (e) {
+    console.error('Firebase init failed', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE NAVIGATION
+// ═══════════════════════════════════════════════════════════
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUTH — LOGIN
+// ═══════════════════════════════════════════════════════════
+document.getElementById('btn-google-login').addEventListener('click', async () => {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try {
+    await fbAuth.signInWithPopup(provider);
+  } catch (e) {
+    setAuthError(e.message);
+  }
+});
+
+document.getElementById('btn-email-login').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const pw    = document.getElementById('login-password').value;
+  setAuthError('');
+  if (!email || !pw) return setAuthError('Please enter email and password.');
+  const btn = document.getElementById('btn-email-login');
+  btn.disabled = true; btn.textContent = isSignup ? 'Creating account…' : 'Signing in…';
+  try {
+    if (isSignup) {
+      await fbAuth.createUserWithEmailAndPassword(email, pw);
+    } else {
+      await fbAuth.signInWithEmailAndPassword(email, pw);
+    }
+  } catch (e) {
+    setAuthError(e.message.replace('Firebase: ', '').replace(/\(auth.*\)\.?/, '').trim());
+  } finally {
+    btn.disabled = false;
+    btn.textContent = isSignup ? 'Create account' : 'Sign in';
+  }
+});
+
+document.getElementById('toggle-signup').addEventListener('click', () => {
+  isSignup = !isSignup;
+  document.getElementById('btn-email-login').textContent = isSignup ? 'Create account' : 'Sign in';
+  document.getElementById('toggle-signup').textContent   = isSignup ? 'Log in instead' : 'Sign up';
+  document.getElementById('toggle-signup').previousSibling.textContent = isSignup ? 'Already have an account? ' : "Don't have an account? ";
+  setAuthError('');
+});
+
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-email-login').click();
+});
+
+function setAuthError(msg) {
+  document.getElementById('auth-error').textContent = msg;
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUTH — SIGN OUT
+// ═══════════════════════════════════════════════════════════
+function signOut() {
+  fbAuth.signOut();
+  companyDetails = null; messages = []; msgCount = 0; analysisGenerated = false;
+  showPage('login');
+}
+document.getElementById('btn-signout').addEventListener('click', signOut);
+document.getElementById('btn-signout2').addEventListener('click', signOut);
+
+// ═══════════════════════════════════════════════════════════
+// DETAILS PAGE — fill user info & submit
+// ═══════════════════════════════════════════════════════════
+function populateUserUI(user) {
+  const name = user.displayName || user.email || 'User';
+  const photo = user.photoURL || '';
+  document.getElementById('user-name').textContent = name;
+  document.getElementById('user-avatar').src = photo;
+  document.getElementById('chat-user-name').textContent = name;
+  document.getElementById('chat-user-avatar').src = photo;
+}
+
+document.getElementById('btn-start').addEventListener('click', () => {
+  const name      = document.getElementById('f-company-name').value.trim();
+  const industry  = document.getElementById('f-industry').value;
+  const country   = document.getElementById('f-country').value;
+  const size      = document.getElementById('f-size').value;
+  const employees = parseInt(document.getElementById('f-employees').value) || 100;
+  const salary    = parseFloat(document.getElementById('f-salary').value) || 50000;
+  const aiInv     = parseFloat(document.getElementById('f-ai-investment').value) || 0;
+  const trainHrs  = parseFloat(document.getElementById('f-training-hours').value) || 0;
+  const autoRate  = parseFloat(document.getElementById('f-automation').value) || 0;
+  const challenge = document.getElementById('f-challenge').value.trim() || 'Not specified';
+
+  if (!name) { alert('Please enter your company name.'); return; }
+
+  companyDetails = {
+    company_name: name, industry, country, company_size: size,
+    current_ai_investment_usd: aiInv, current_training_hours: trainHrs,
+    num_employees: employees, avg_salary_usd: salary,
+    current_automation_rate: autoRate, main_challenge: challenge
+  };
+
+  messages = []; msgCount = 0; analysisGenerated = false;
+  document.getElementById('chat-messages').innerHTML = '';
+  document.getElementById('chat-company-label').textContent =
+    `${name} · ${industry} · ${country}`;
+
+  showPage('chat');
+  sendAIOpener();
+});
+
+document.getElementById('btn-new-session').addEventListener('click', () => {
+  companyDetails = null; messages = []; msgCount = 0; analysisGenerated = false;
+  showPage('details');
+});
+
+// ═══════════════════════════════════════════════════════════
+// CHAT — RENDER
+// ═══════════════════════════════════════════════════════════
+function appendMsg(role, content, isHTML = false) {
+  const wrap = document.getElementById('chat-messages');
+
+  // Remove analysis button if present (will re-add after AI msg)
+  const existing = document.getElementById('analysis-btn-row');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  const initial = role === 'ai' ? 'AI' : (currentUser?.displayName?.[0] || 'U');
+  div.innerHTML = `
+    <div class="msg-avatar">${initial}</div>
+    <div class="msg-bubble">${isHTML ? content : marked.parse(content)}</div>`;
+  wrap.appendChild(div);
+
+  // Show analysis button after AI replies and enough context
+  if (role === 'ai' && msgCount >= 3 && !analysisGenerated) {
+    const btnRow = document.createElement('div');
+    btnRow.className = 'analysis-btn-wrap'; btnRow.id = 'analysis-btn-row';
+    btnRow.innerHTML = `<button class="btn-analysis" id="btn-generate-analysis">
+      ✨ Generate Full ROI Analysis with Charts
+    </button>`;
+    wrap.appendChild(btnRow);
+    document.getElementById('btn-generate-analysis').addEventListener('click', generateAnalysis);
+  }
+
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function showTyping() {
+  const wrap = document.getElementById('chat-messages');
+  const t = document.createElement('div');
+  t.className = 'msg ai'; t.id = 'typing-msg';
+  t.innerHTML = `<div class="msg-avatar">AI</div>
+    <div class="msg-bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+  wrap.appendChild(t); wrap.scrollTop = wrap.scrollHeight;
+}
+function removeTyping() { document.getElementById('typing-msg')?.remove(); }
+
+// ═══════════════════════════════════════════════════════════
+// CHAT — SEND
+// ═══════════════════════════════════════════════════════════
+async function sendAIOpener() {
+  showTyping();
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [], company_details: companyDetails })
+    });
+    const data = await res.json();
+    removeTyping();
+    const reply = data.reply || 'Hello! Tell me about your situation.';
+    messages.push({ role: 'assistant', content: reply });
+    appendMsg('ai', reply);
+    msgCount++;
+  } catch (e) {
+    removeTyping();
+    appendMsg('ai', 'Sorry, I had trouble connecting. Please try again.');
+  }
+}
+
+async function sendUserMessage(text) {
+  if (!text.trim()) return;
+  messages.push({ role: 'user', content: text });
+  appendMsg('user', text);
+  msgCount++;
+
+  const inp = document.getElementById('chat-input');
+  const btn = document.getElementById('btn-send');
+  inp.value = ''; inp.style.height = 'auto'; inp.disabled = true; btn.disabled = true;
+
+  showTyping();
+  try {
+    const apiMsgs = messages.map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content
+    }));
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: apiMsgs, company_details: companyDetails })
+    });
+    const data = await res.json();
+    removeTyping();
+    const reply = data.reply || '...';
+    messages.push({ role: 'assistant', content: reply });
+    appendMsg('ai', reply);
+    msgCount++;
+  } catch (e) {
+    removeTyping();
+    appendMsg('ai', 'Connection issue — please try again.');
+  } finally {
+    inp.disabled = false; btn.disabled = false; inp.focus();
+  }
+}
+
+// Send button + Enter key
+document.getElementById('btn-send').addEventListener('click', () => {
+  sendUserMessage(document.getElementById('chat-input').value);
+});
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendUserMessage(document.getElementById('chat-input').value);
+  }
+});
+document.getElementById('chat-input').addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+// ═══════════════════════════════════════════════════════════
+// ANALYSIS — generate + charts
+// ═══════════════════════════════════════════════════════════
+async function generateAnalysis() {
+  analysisGenerated = true;
+  document.getElementById('analysis-btn-row')?.remove();
+
+  appendMsg('user', '📊 Generate my full ROI analysis with charts.');
+  showTyping();
+
+  try {
+    const [roiRes, structRes] = await Promise.all([
+      fetch('/compare/roi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_details: companyDetails, chat_history: messages })
+      }),
+      fetch('/compare/roi/structured', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_details: companyDetails, chat_history: messages })
+      })
+    ]);
+
+    const roiData    = await roiRes.json();
+    const structured = await structRes.json();
+    removeTyping();
+
+    // Render text analysis
+    appendMsg('ai', roiData.roi_comparison || 'Analysis complete.');
+
+    // Render charts
+    renderCharts(structured);
+
+  } catch (e) {
+    removeTyping();
+    appendMsg('ai', 'Could not generate analysis. Please try again.');
+  }
+}
+
+function renderCharts(data) {
+  const wrap = document.getElementById('chat-messages');
+  const chartDiv = document.createElement('div');
+  chartDiv.className = 'msg ai';
+  chartDiv.innerHTML = `
+    <div class="msg-avatar">AI</div>
+    <div class="msg-bubble" style="width:100%;max-width:680px;">
+      <strong style="color:var(--primary)">📈 Visual ROI Breakdown</strong>
+      <div class="charts-grid" style="margin-top:14px;">
+        <div class="chart-block">
+          <h4>ROI Score Comparison</h4>
+          <div class="chart-container"><canvas id="chart-roi"></canvas></div>
+        </div>
+        <div class="chart-block">
+          <h4>Investment Recommendation</h4>
+          <div class="chart-container"><canvas id="chart-rec"></canvas></div>
+        </div>
+        <div class="chart-block">
+          <h4>Timeline to ROI (months)</h4>
+          <div class="chart-container"><canvas id="chart-timeline"></canvas></div>
+        </div>
+        <div class="chart-block">
+          <h4>Risk vs Scalability</h4>
+          <div class="chart-container"><canvas id="chart-radar"></canvas></div>
+        </div>
+      </div>
+    </div>`;
+  wrap.appendChild(chartDiv);
+  wrap.scrollTop = wrap.scrollHeight;
+
+  const d = data || {};
+  const aiScore     = d.ai_roi_score       ?? 65;
+  const trainScore  = d.training_roi_score  ?? 72;
+  const aiRec       = d.ai_allocation       ?? 40;
+  const trainRec    = d.training_allocation ?? 60;
+  const aiTimeline  = d.ai_roi_months       ?? 12;
+  const trainTime   = d.training_roi_months ?? 18;
+
+  const COLORS = { primary: '#38bdf8', accent: '#818cf8', success: '#4ade80', warn: '#fb923c' };
+  Chart.defaults.color = '#94a3b8';
+
+  // Bar: ROI score
+  new Chart(document.getElementById('chart-roi'), {
+    type: 'bar',
+    data: {
+      labels: ['AI Investment', 'Employee Training'],
+      datasets: [{ data: [aiScore, trainScore], backgroundColor: [COLORS.primary, COLORS.accent],
+        borderRadius: 8, borderSkipped: false }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { min: 0, max: 100, grid: { color: '#1e293b' } }, x: { grid: { display: false } } }
+    }
+  });
+
+  // Doughnut: recommendation
+  new Chart(document.getElementById('chart-rec'), {
+    type: 'doughnut',
+    data: {
+      labels: ['AI', 'Training'],
+      datasets: [{ data: [aiRec, trainRec], backgroundColor: [COLORS.primary, COLORS.accent],
+        borderWidth: 0, hoverOffset: 4 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+
+  // Timeline bar
+  new Chart(document.getElementById('chart-timeline'), {
+    type: 'bar',
+    data: {
+      labels: ['AI', 'Training'],
+      datasets: [{ data: [aiTimeline, trainTime], backgroundColor: [COLORS.success, COLORS.warn],
+        borderRadius: 8, borderSkipped: false }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { min: 0, grid: { color: '#1e293b' }, title: { display: true, text: 'months' } },
+                x: { grid: { display: false } } }
+    }
+  });
+
+  // Radar: risk vs scalability
+  new Chart(document.getElementById('chart-radar'), {
+    type: 'radar',
+    data: {
+      labels: ['Cost Efficiency', 'Scalability', 'Speed', 'Sustainability', 'Low Risk'],
+      datasets: [
+        { label: 'AI', data: d.ai_radar    ?? [75, 90, 85, 60, 55], borderColor: COLORS.primary,
+          backgroundColor: 'rgba(56,189,248,.15)', pointBackgroundColor: COLORS.primary },
+        { label: 'Training', data: d.training_radar ?? [65, 60, 50, 85, 80], borderColor: COLORS.accent,
+          backgroundColor: 'rgba(129,140,248,.15)', pointBackgroundColor: COLORS.accent }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { r: { min: 0, max: 100, grid: { color: '#334155' }, ticks: { display: false } } }
+    }
+  });
+
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════
+initFirebase().then(() => {
+  fbAuth.onAuthStateChanged(user => {
+    if (user) {
+      currentUser = user;
+      populateUserUI(user);
+      if (!companyDetails) showPage('details');
+    } else {
+      showPage('login');
+    }
+  });
+});
+</script>
+</body>
+</html>
