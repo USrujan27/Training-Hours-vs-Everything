@@ -1,0 +1,12 @@
+# Jupyter notebooks - not needed at runtime
+*.ipynb
+ai job replacement graphs/
+corporate adoption graphs/
+Training-Hours-vs-Everything-updated (1).pptx
+save_models_snippet.py
+frontend/
+.cache/
+.vite/
+.git/
+.agents/
+.local/
