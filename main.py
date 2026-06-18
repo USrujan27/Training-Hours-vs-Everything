@@ -236,6 +236,8 @@ def firebase_config():
         "messagingSenderId": "171312393255",
         "appId":             "1:171312393255:web:07d8e4081480162357f202",
         "measurementId":     "G-03ZP55MWBC",
+        "clientId":          os.environ.get("GOOGLE_CLIENT_ID",
+                             "171312393255-tshgoglogb6api8a1ah5fbr13f96jro9.apps.googleusercontent.com"),
     }
 
 
