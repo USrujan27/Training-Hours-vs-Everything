@@ -1,14 +1,17 @@
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 import openai
 import json
 import numpy as np
 import onnxruntime as ort
 import os
-from typing import Optional
+import subprocess
+import tempfile
+import shutil
+from typing import Optional, List
 
 app = FastAPI(title="AIvsHire API", version="2.0.0")
 
@@ -217,18 +220,69 @@ Start by acknowledging their situation and asking deeper questions about their s
 # ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def root():
-    return {
-        "message": "AIvsHire API is running",
-        "version": "2.0.0",
-        "purpose": "AI vs Employee ROI Comparison for Companies",
-        "ml_predictions": {
-            "job_model":  job_bundle  is not None,
-            "corp_model": corp_bundle is not None,
-        },
-        "ai_chat": client is not None,
-    }
+    job_ok  = "✅" if job_bundle  is not None else "❌"
+    corp_ok = "✅" if corp_bundle is not None else "❌"
+    chat_ok = "✅" if client      is not None else "❌"
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AIvsHire API</title>
+  <style>
+    body {{ font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 40px; }}
+    h1 {{ color: #38bdf8; margin-bottom: 4px; }}
+    p  {{ color: #94a3b8; margin-top: 0; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 32px; }}
+    .card {{ background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }}
+    .card h3 {{ margin: 0 0 8px; color: #7dd3fc; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; }}
+    .card p  {{ margin: 0; font-size: 15px; color: #cbd5e1; }}
+    .status {{ font-size: 13px; margin-top: 6px; }}
+    a {{ color: #38bdf8; text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+    .badge {{ display: inline-block; background: #0ea5e9; color: #fff; border-radius: 6px; padding: 2px 8px; font-size: 12px; margin-left: 8px; }}
+  </style>
+</head>
+<body>
+  <h1>AIvsHire API <span class="badge">v2.0.0</span></h1>
+  <p>AI vs Employee ROI Comparison Platform</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Status</h3>
+      <p class="status">{job_ok} Job replacement model</p>
+      <p class="status">{corp_ok} Corporate adoption model</p>
+      <p class="status">{chat_ok} AI chat (OpenAI)</p>
+    </div>
+    <div class="card">
+      <h3>AI Chat</h3>
+      <p>POST <code>/chat</code> — advisory chat</p>
+      <p>POST <code>/chat/stream</code> — streaming chat</p>
+    </div>
+    <div class="card">
+      <h3>ML Predictions</h3>
+      <p>POST <code>/predict/job</code></p>
+      <p>POST <code>/predict/corporate</code></p>
+    </div>
+    <div class="card">
+      <h3>Analysis</h3>
+      <p>POST <code>/compare/roi</code> — full ROI report</p>
+    </div>
+    <div class="card">
+      <h3>Kaggle Datasets</h3>
+      <p>POST <code>/datasets/fetch</code> — download a dataset</p>
+      <p>GET &nbsp;<code>/datasets/list</code> — list cached datasets</p>
+    </div>
+    <div class="card">
+      <h3>Docs</h3>
+      <p><a href="/docs">Interactive API docs →</a></p>
+      <p><a href="/health">Health check →</a></p>
+    </div>
+  </div>
+</body>
+</html>"""
 
 
 @app.get("/health")
@@ -429,6 +483,74 @@ Generate the full ROI comparison report now."""
         ],
     )
     return {"roi_comparison": response.choices[0].message.content}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# KAGGLE ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+DATASETS_DIR = "datasets"
+os.makedirs(DATASETS_DIR, exist_ok=True)
+
+class DatasetFetchRequest(BaseModel):
+    dataset: str  # e.g. "username/dataset-name"
+
+
+def _setup_kaggle_env():
+    """Write kaggle.json from env vars so the kaggle CLI works."""
+    username = os.environ.get("KAGGLE_USERNAME")
+    key      = os.environ.get("KAGGLE_KEY")
+    if not username or not key:
+        raise HTTPException(status_code=503, detail="KAGGLE_USERNAME or KAGGLE_KEY not configured.")
+    kaggle_dir = os.path.expanduser("~/.kaggle")
+    os.makedirs(kaggle_dir, exist_ok=True)
+    creds_path = os.path.join(kaggle_dir, "kaggle.json")
+    with open(creds_path, "w") as f:
+        json.dump({"username": username, "key": key}, f)
+    os.chmod(creds_path, 0o600)
+
+
+@app.post("/datasets/fetch")
+def fetch_dataset(req: DatasetFetchRequest):
+    """Download a Kaggle dataset by 'owner/dataset-name' slug."""
+    _setup_kaggle_env()
+    dest = os.path.join(DATASETS_DIR, req.dataset.replace("/", "_"))
+    os.makedirs(dest, exist_ok=True)
+    result = subprocess.run(
+        ["kaggle", "datasets", "download", "-d", req.dataset, "--unzip", "-p", dest],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=400, detail=result.stderr.strip())
+    files = []
+    for root, _, filenames in os.walk(dest):
+        for fn in filenames:
+            rel = os.path.relpath(os.path.join(root, fn), DATASETS_DIR)
+            files.append(rel)
+    return {
+        "status":  "downloaded",
+        "dataset": req.dataset,
+        "path":    dest,
+        "files":   files,
+    }
+
+
+@app.get("/datasets/list")
+def list_datasets():
+    """List all previously downloaded datasets."""
+    if not os.path.isdir(DATASETS_DIR):
+        return {"datasets": []}
+    entries = []
+    for name in os.listdir(DATASETS_DIR):
+        full = os.path.join(DATASETS_DIR, name)
+        if os.path.isdir(full):
+            files = []
+            for root, _, filenames in os.walk(full):
+                for fn in filenames:
+                    rel = os.path.relpath(os.path.join(root, fn), full)
+                    files.append(rel)
+            entries.append({"name": name, "files": files, "file_count": len(files)})
+    return {"datasets": entries}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
