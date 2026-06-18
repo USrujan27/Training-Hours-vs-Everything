@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import anthropic
+import openai
 import json
 import numpy as np
 import onnxruntime as ort
@@ -21,13 +21,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Anthropic client ────────────────────────────────────────────────────────
-_api_key = os.environ.get("ANTHROPIC_API_KEY")
+# ── OpenAI client ────────────────────────────────────────────────────────────
+_api_key = os.environ.get("OPENAI_API_KEY")
 if not _api_key:
-    print("WARNING: ANTHROPIC_API_KEY not set — /chat and /compare/roi will return 503")
-client = anthropic.Anthropic(api_key=_api_key) if _api_key else None
+    print("WARNING: OPENAI_API_KEY not set — /chat and /compare/roi will return 503")
+client = openai.OpenAI(api_key=_api_key) if _api_key else None
 
-MODEL = "claude-sonnet-4-5"
+MODEL = "gpt-4o"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -244,33 +244,38 @@ def health():
 @app.post("/chat")
 def chat(req: ChatRequest):
     if client is None:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured.")
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
     system   = build_system_prompt(req.company_details)
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
-    response = client.messages.create(
+    messages = [{"role": "system", "content": system}] + [
+        {"role": m.role, "content": m.content} for m in req.messages
+    ]
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=1024,
-        system=system,
         messages=messages,
     )
-    return {"reply": response.content[0].text}
+    return {"reply": response.choices[0].message.content}
 
 
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest):
     if client is None:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured.")
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
     system   = build_system_prompt(req.company_details)
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
+    messages = [{"role": "system", "content": system}] + [
+        {"role": m.role, "content": m.content} for m in req.messages
+    ]
 
     def generate():
-        with client.messages.stream(
+        stream = client.chat.completions.create(
             model=MODEL,
             max_tokens=1024,
-            system=system,
             messages=messages,
-        ) as stream:
-            for text in stream.text_stream:
+            stream=True,
+        )
+        for chunk in stream:
+            text = chunk.choices[0].delta.content
+            if text:
                 yield f"data: {json.dumps({'text': text})}\n\n"
         yield "data: [DONE]\n\n"
 
@@ -360,7 +365,7 @@ def predict_corporate(req: CorpPredictRequest):
 @app.post("/compare/roi")
 def compare_roi(req: ROIComparisonRequest):
     if client is None:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured.")
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured.")
 
     system = """You are AIvsHire, an expert business ROI analyst.
 
@@ -415,13 +420,15 @@ Conversation with company representative:
 
 Generate the full ROI comparison report now."""
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=2000,
-        system=system,
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ],
     )
-    return {"roi_comparison": response.content[0].text}
+    return {"roi_comparison": response.choices[0].message.content}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
